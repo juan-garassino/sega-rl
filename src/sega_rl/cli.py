@@ -34,6 +34,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("smoke", help="2-env Airstriker run, ~2k steps, in a temp dir")
     st = sub.add_parser("status", help="live run state from MLflow (health, eval, fps)")
     st.add_argument("run_name", help="run id = MLflow run name, e.g. sf-20261124-180000")
+    vid = sub.add_parser("videos", help="download a run's eval replay videos from MLflow")
+    vid.add_argument("run_name")
+    vid.add_argument("--dest", type=Path, default=Path.home() / "Videos" / "rl-series")
     sub.add_parser("check-rom", help="exit 1 unless SEGARL_GAME's ROM is imported (right dump)")
     imp = sub.add_parser("import-roms", help="import ROMs into stable-retro")
     imp.add_argument("--dir", type=Path, default=Path("roms"))
@@ -108,6 +111,16 @@ def _cmd_check_rom(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def _cmd_videos(args: argparse.Namespace) -> int:
+    from sega_rl.status import fetch_videos
+
+    new = fetch_videos(args.run_name, args.dest)
+    print(f"{len(new)} new video(s) in {args.dest / args.run_name}")
+    for p in new:
+        print(f"  {p}")
+    return 0
+
+
 def _cmd_import_roms(args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, "-m", "stable_retro.import", str(args.dir)])
 
@@ -115,6 +128,6 @@ def _cmd_import_roms(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
-    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke, "status": _cmd_status, "check-rom": _cmd_check_rom,
+    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke, "status": _cmd_status, "check-rom": _cmd_check_rom, "videos": _cmd_videos,
                 "import-roms": _cmd_import_roms}
     return handlers[args.cmd](args)

@@ -1,4 +1,4 @@
-.PHONY: help install test smoke import-roms launch status clean
+.PHONY: help install test smoke import-roms launch status videos clean
 
 GCS_ROMS := gs://garassino-ml-artifacts/sega-rl/roms
 ROM_sf := roms/Street Fighter II' - Special Champion Edition (USA).md
@@ -32,6 +32,10 @@ launch:  ## Upload one ROM to private GCS and start a pod: make launch GAME=sf|s
 status:  ## Live run state from MLflow: make status RUN=sf-20261124-180000
 	@if [ -z "$(RUN)" ]; then echo "Usage: make status RUN=<run id>"; exit 1; fi
 	@uv run sega-rl status $(RUN) 2>/dev/null
+
+videos:  ## Download a run's eval replays to ~/Videos/rl-series/<run>: make videos RUN=sf-20261124-180000
+	@if [ -z "$(RUN)" ]; then echo "Usage: make videos RUN=<run id>"; exit 1; fi
+	@uv run sega-rl videos $(RUN)
 
 clean:  ## Remove caches and local runs
 	rm -rf .pytest_cache runs **/__pycache__

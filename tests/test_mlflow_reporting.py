@@ -143,3 +143,31 @@ def test_start_returns_false_when_probe_upload_fails(monkeypatch, tmp_path):
     probe.write_text("{}")
     assert mlflow_tracking.start(Settings(), probe=probe) is False
     assert mlflow_tracking._active is False
+
+
+class _StubClient:
+    def __init__(self, tmp):
+        self.tmp = tmp
+
+    def get_experiment_by_name(self, name):
+        return type("E", (), {"experiment_id": "7"})()
+
+    def search_runs(self, ids, flt, max_results=1):
+        info = type("I", (), {"run_id": "abc"})()
+        return [type("R", (), {"info": info})()]
+
+    def download_artifacts(self, run_id, path, dst_path):
+        out = self.tmp / "dl" / path
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "eval_0000250000.mp4").write_bytes(b"x")
+        return str(out)
+
+
+def test_fetch_videos_copies_new_files(tmp_path):
+    from sega_rl.status import fetch_videos
+
+    dest = tmp_path / "Videos"
+    got = fetch_videos("sf-1", dest, client=_StubClient(tmp_path))
+    assert [p.name for p in got] == ["eval_0000250000.mp4"]
+    assert (dest / "sf-1" / "eval_0000250000.mp4").exists()
+    assert fetch_videos("sf-1", dest, client=_StubClient(tmp_path)) == []  # already downloaded

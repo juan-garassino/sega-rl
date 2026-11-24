@@ -20,7 +20,7 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | `evaluate.py` | `run_eval` (deterministic, in-process), `EvalCallback` (video, best_model.zip, best.json) |
 | `train.py` | `run()`: resume, callbacks (checkpoints, health, eval, budget), env-crash handling, DONE marker |
 | `tune.py` | Optuna, upstream search space → best_params.json (`SEGARL_PARAMS_FILE`) |
-| `status.py` | `sega-rl status <run>`: live state from MLflow |
+| `status.py` | `sega-rl status <run>` (live state) and `sega-rl videos <run>` (download eval replays) via MLflow |
 | `cli.py` | `sega-rl train|tune|eval|smoke|status|check-rom|import-roms` |
 
 `runpod/`: `Dockerfile` (CUDA 12.8 devel, uv, torch 2.14.1 cu126 swapped in, import check), `entrypoint.sh`
