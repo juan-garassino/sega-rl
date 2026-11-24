@@ -8,8 +8,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-GSUTIL = r'''#!/usr/bin/env bash
-echo "gsutil $*" >> "$CALLS"
+GCLOUD = r'''#!/usr/bin/env bash
+echo "gcloud $*" >> "$CALLS"
 case "$*" in
   *cat*DONE*) [ -n "${STUB_DONE:-}" ] && { echo "$STUB_DONE"; exit 0; } || exit 1 ;;
   *rm*DONE*) exit 0 ;;
@@ -46,7 +46,7 @@ def _trainer_ran(calls: str) -> bool:
 def _run(tmp_path: Path, **env_overrides) -> tuple[int, str, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    for name, body in {"gsutil": GSUTIL, "curl": CURL, "sega-rl": SEGA_RL, "python": PYTHON}.items():
+    for name, body in {"gsutil": "#!/usr/bin/env bash\necho \"gsutil $*\" >> \"$CALLS\"\n", "gcloud": GCLOUD, "curl": CURL, "sega-rl": SEGA_RL, "python": PYTHON}.items():
         (bin_dir / name).write_text(body)
         (bin_dir / name).chmod(0o755)
     calls = tmp_path / "calls.log"
@@ -56,7 +56,7 @@ def _run(tmp_path: Path, **env_overrides) -> tuple[int, str, Path]:
         "PATH": f"{bin_dir}:{os.environ['PATH']}", "CALLS": str(calls), "WORKSPACE_DIR": str(ws),
         "APP_DIR": str(REPO), "RUN_ID": "t", "GCS_BUCKET": "bucket", "MODE": "train",
         "SEGARL_GAME": "airstriker", "RUNPOD_POD_ID": "pod1", "RUNPOD_API_KEY": "k", "SYNC_INTERVAL": "3600",
-        "HOME": str(tmp_path), "POD_SELF_BACKOFF": "0",
+        "HOME": str(tmp_path), "POD_SELF_BACKOFF": "0", "FAIL_LINGER": "0",
     }
     env.update(env_overrides)
     env = {k: v for k, v in env.items() if v is not None}
@@ -156,3 +156,10 @@ def test_budget_stopped_run_is_extended(tmp_path):
     assert rc == 0
     assert any(" rm " in line and "DONE" in line for line in calls.splitlines())
     assert _trainer_ran(calls)
+
+
+def test_uses_gcloud_storage_not_gsutil(tmp_path):
+    # gsutil ignores CLOUDSDK_AUTH_ACCESS_TOKEN and calls GCS anonymously (401) — every pull silently failed.
+    _, calls, _ = _run(tmp_path, SEGARL_GAME="sf")
+    assert "gsutil" not in calls
+    assert "gcloud storage cp" in calls and "gcloud storage rm" in calls
