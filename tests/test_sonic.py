@@ -88,3 +88,32 @@ def test_sonic_rom_smoke():
         assert info["max_x"] > 80
     finally:
         env.close()
+
+
+def test_stall_ends_episode():
+    fn = SonicReward(stall_frames=5)
+    fn({}, _info(100))
+    terms = []
+    for _ in range(6):
+        info = _info(100)
+        terms.append(fn(_info(100), info)[1])
+    assert terms == [False] * 4 + [True, True]
+    assert info["stalled"] is True
+
+
+def test_progress_resets_stall_counter():
+    fn = SonicReward(stall_frames=3)
+    fn({}, _info(100))
+    fn(_info(100), _info(100))
+    fn(_info(100), _info(100))
+    _, term = fn(_info(100), _info(101))  # new ground
+    assert term is False
+    _, term = fn(_info(101), _info(101))
+    assert term is False
+
+
+def test_stall_frames_from_config():
+    from sega_rl.config import Settings
+    from sega_rl.envs.sonic import stall_frames
+
+    assert stall_frames(Settings(game="sonic")) == 30 * 60

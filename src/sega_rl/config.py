@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     sf_actions: Literal["discrete", "multibinary"] = "discrete"  # SEGARL_SF_ACTIONS=multibinary (upstream)
     sf_dealt_weight: float = 1.0  # SEGARL_SF_DEALT_WEIGHT=1.0
     sf_taken_weight: float = 0.5  # SEGARL_SF_TAKEN_WEIGHT=0.5 (<1 favours engaging over fleeing)
+    sonic_stall_secs: float = 30.0  # SEGARL_SONIC_STALL_SECS=30 (end a Sonic episode after this long without new ground)
     learning_rate: float | None = None  # SEGARL_LEARNING_RATE=1e-4 (None = per-game default)
     frame_skip: int = 4  # SEGARL_FRAME_SKIP=4
     frame_stack: int = 4  # SEGARL_FRAME_STACK=4

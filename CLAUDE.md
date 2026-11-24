@@ -11,7 +11,7 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | `config.py` | `Settings` (`SEGARL_*`), per-game defaults (`default_total_steps`, `default_max_eur`), `hours_budget` (EUR cap ÷ pod USD/h) |
 | `envs/common.py` | `RetroEnv`: gray 84×84, frame skip + max-pool, frame/delta obs, button combos, truncation, `info["buttons"]` |
 | `envs/street_fighter.py` | `SF_ACTIONS` (21 moves, default; `SEGARL_SF_ACTIONS=multibinary` = upstream), `SFReward` (weighted damage diff/176 ± round) |
-| `envs/sonic.py` | `SonicReward` (new ground /100, +10 at act end, ends on lost life), `SONIC_ACTIONS`, `LEVEL_MAX_X` |
+| `envs/sonic.py` | `SonicReward` (new ground /100, +10 at act end; ends on lost life or 30 s without new ground), `SONIC_ACTIONS`, `LEVEL_MAX_X` |
 | `envs/airstriker.py` | score reward, test/smoke game |
 | `envs/factory.py` | `make_vec_env`: SubprocVecEnv(forkserver) → VecMonitor → VecFrameStack(4) |
 | `monitoring/health.py` | `HealthMonitor` rules, `HealthCallback` (health.json, watchdog thread → exit 3 on stall) |
