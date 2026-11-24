@@ -25,6 +25,7 @@ class EvalResult:
     mean_damage_taken: float
     mean_return: float
     mean_progress: float = math.nan
+    rounds_done: int = 0  # sample size behind win_rate (sf)
 
 
 def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None,
@@ -76,7 +77,41 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
         win_rate = math.nan
     return EvalResult(win_rate=win_rate, mean_damage_dealt=float(np.mean(dealt)),
                       mean_damage_taken=float(np.mean(taken)), mean_return=float(np.mean(returns)),
-                      mean_progress=float(np.mean(progress)) if progress else math.nan)
+                      mean_progress=float(np.mean(progress)) if progress else math.nan,
+                      rounds_done=rounds_done)
+
+
+class StandStill:
+    """Presses nothing. If this scores, the reward or the metric is wrong."""
+
+    def __init__(self, action_space):
+        self.shape = getattr(action_space, "shape", ()) or ()
+
+    def predict(self, obs, deterministic=True):
+        return np.zeros((len(obs), *self.shape), dtype=np.int64), None
+
+
+class RandomPolicy:
+    def __init__(self, action_space):
+        self.action_space = action_space
+
+    def predict(self, obs, deterministic=True):
+        return np.array([self.action_space.sample() for _ in range(len(obs))]), None
+
+
+def run_baselines(cfg: Settings, run_dir: Path, action_space, eval_fn: Callable[..., EvalResult] | None = run_eval,
+                  heartbeat: Callable[[], None] | None = None) -> dict[str, float]:
+    """Measure stand-still and random play once per run, so every win rate has something to beat."""
+    path = Path(run_dir) / "baselines.json"
+    if path.exists():
+        return {}
+    out: dict[str, float] = {}
+    for name, policy in (("stand_still", StandStill(action_space)), ("random", RandomPolicy(action_space))):
+        result = eval_fn(policy, cfg, cfg.n_eval_episodes, heartbeat=heartbeat)
+        logger.info("baseline %s: %s", name, result)
+        out.update({f"baseline/{name}_{k}": v for k, v in asdict(result).items() if not math.isnan(v)})
+    path.write_text(json.dumps(out, indent=2, default=float))
+    return out
 
 
 def score(game: str, r: EvalResult) -> tuple[float, ...]:
@@ -116,7 +151,7 @@ class EvalCallback(BaseCallback):
         steps = self.model.num_timesteps
         self.next_eval = (steps // self.cfg.eval_freq + 1) * self.cfg.eval_freq
         video = self.run_dir / "videos" / f"eval_{steps:010d}.mp4"
-        result = self.eval_fn(self.model, self.cfg, self.cfg.eval_episodes, video_path=video,
+        result = self.eval_fn(self.model, self.cfg, self.cfg.n_eval_episodes, video_path=video,
                               heartbeat=self.heartbeat)
         if video.exists():
             mlflow_tracking.log_artifact(video, "videos")
