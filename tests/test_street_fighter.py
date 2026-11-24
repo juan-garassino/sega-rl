@@ -102,3 +102,64 @@ def test_sf_defaults_discrete_and_lower_lr():
     assert Settings(game="sf").sf_actions == "discrete"
     assert default_learning_rate("sf") == 1e-4
     assert default_learning_rate("sonic") == 2.5e-4
+
+
+def _total(frames):
+    """Run SFReward over (health, enemy_health, won, lost) frames; return summed damage and reward."""
+    fn, prev, dealt, taken, reward = SFReward("shaped"), {}, 0, 0, 0.0
+    for hp, ehp, won, lost in frames:
+        info = _info(health=hp, enemy_health=ehp, matches_won=won, enemy_matches_won=lost)
+        r, _ = fn(prev, info)
+        dealt, taken, reward = dealt + info.get("damage_dealt", 0), taken + info.get("damage_taken", 0), reward + r
+        prev = info
+    return dealt, taken, reward
+
+
+# Frames recorded from the real ROM: KO is -1, and the game clears both bars to 0 between rounds.
+def test_losing_untouched_enemy_deals_nothing():
+    dealt, taken, reward = _total([(176, 176, 0, 0), (33, 176, 0, 0), (-1, 176, 0, 0), (-1, 176, 0, 1),
+                                   (0, 0, 0, 1), (176, 176, 0, 1)])
+    assert (dealt, taken) == (0, 176)
+    assert reward == pytest.approx(-2.0)
+
+
+def test_winning_untouched_takes_nothing():
+    dealt, taken, reward = _total([(176, 176, 0, 0), (176, -1, 0, 0), (176, -1, 1, 0), (0, 0, 1, 0), (176, 176, 1, 0)])
+    assert (dealt, taken) == (176, 0)
+    assert reward == pytest.approx(2.0)
+
+
+def test_damage_counts_again_in_the_next_round():
+    dealt, _, _ = _total([(176, 176, 0, 0), (-1, 176, 0, 0), (-1, 176, 0, 1), (0, 0, 0, 1), (176, 176, 0, 1),
+                          (176, 150, 0, 1)])
+    assert dealt == 26
+
+
+def test_cleared_bars_without_a_round_result_are_not_damage():
+    assert _total([(100, 90, 0, 0), (0, 0, 0, 0), (176, 176, 0, 0)])[:2] == (0, 0)
+
+
+@pytest.mark.rom
+def test_standing_still_deals_no_damage_on_the_real_game():
+    import stable_retro
+
+    from sega_rl.config import Settings
+    from sega_rl.envs import street_fighter
+
+    try:
+        stable_retro.data.get_romfile_path(street_fighter.GAME_ID)
+    except FileNotFoundError:
+        pytest.skip("SF ROM not imported (make import-roms)")
+    env = street_fighter.make(Settings(game="sf", noop_max=0))
+    dealt = taken = 0
+    try:
+        env.reset(seed=0)
+        for _ in range(1400):
+            *_, term, trunc, info = env.step(0)
+            dealt, taken = dealt + info.get("damage_dealt", 0), taken + info.get("damage_taken", 0)
+            if term or trunc:
+                break
+    finally:
+        env.close()
+    assert dealt == 0
+    assert taken == 2 * 176

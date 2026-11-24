@@ -28,19 +28,27 @@ class SFReward:
         self.mode = mode
         self.dealt_weight = dealt_weight
         self.taken_weight = taken_weight
+        self.reset()
 
     def reset(self) -> None:
-        pass
+        self.between_rounds = False
 
     def __call__(self, prev: dict, info: dict) -> tuple[float, bool]:
         if not prev:
             info.setdefault("round_won", None)
             return 0.0, False
-        # Health refills at round start; only decreases count as damage.
-        dealt = max(0, prev["enemy_health"] - info["enemy_health"])
-        taken = max(0, prev["health"] - info["health"])
+        # KO is -1. Between rounds the game clears both bars to 0 and then refills them; neither is damage.
+        cleared = info["health"] == 0 and info["enemy_health"] == 0
+        dealt = max(0, max(0, prev["enemy_health"]) - max(0, info["enemy_health"]))
+        taken = max(0, max(0, prev["health"]) - max(0, info["health"]))
+        if self.between_rounds or cleared:
+            dealt = taken = 0
         won = info["matches_won"] > prev["matches_won"]
         lost = info["enemy_matches_won"] > prev["enemy_matches_won"]
+        if won or lost:
+            self.between_rounds = True
+        elif info["health"] == MAX_HEALTH and info["enemy_health"] == MAX_HEALTH:
+            self.between_rounds = False
         info["damage_dealt"] = dealt
         info["damage_taken"] = taken
         info["round_won"] = True if won else False if lost else None
