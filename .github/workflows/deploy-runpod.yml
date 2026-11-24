@@ -114,14 +114,14 @@ jobs:
             + (if $max_eur == "" then [] else [{key:"SEGARL_MAX_EUR", value:$max_eur}] end)')
 
           if [ "${{ inputs.compute_type }}" = CPU ]; then
-            BODY=$(jq -nc --arg name "sega-rl-$RUN_ID" --argjson vcpu "${{ inputs.vcpu }}" --argjson env "$ENV_JSON" \
-              '{name: $name, imageName: "ghcr.io/juan-garassino/sega-rl:latest", computeType: "CPU",
-                cpuFlavorIds: ["cpu5c", "cpu3c"], vcpuCount: $vcpu, cloudType: "SECURE",
-                containerDiskInGb: 40, volumeInGb: 0, env: ($env | map({(.key): .value}) | add)}')
-            RESP=$(curl -s -X POST https://rest.runpod.io/v1/pods \
+            # REST v2 (same call as the official runpod SDK's create_pod for CPU pods).
+            BODY=$(jq -nc --arg name "${{ github.event.repository.name }}-$RUN_ID" --argjson vcpu "${{ inputs.vcpu }}" --argjson env "$ENV_JSON" \
+              '{name: $name, image: "ghcr.io/juan-garassino/sega-rl:latest", cloud: "SECURE", disk: 40, startSsh: false,
+                cpu: {id: "cpu5c", vcpuCount: $vcpu}, env: ($env | map({(.key): .value}) | add)}')
+            RESP=$(curl -s --max-time 60 -X POST https://api.runpod.io/v2/pods \
               -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" -d "$BODY")
             POD_ID=$(echo "$RESP" | jq -r '.id // empty')
-            COST=$(echo "$RESP" | jq -r '.costPerHr // "?"')
+            COST=$(echo "$RESP" | jq -r '.costPerHr // .cost // "?"')
             [ -n "$POD_ID" ] || { echo "::error::CPU pod deploy failed"; echo "$RESP" | jq 'del(.env)' 2>/dev/null || echo "$RESP" | head -c 500; exit 1; }
           else
           QUERY=$(jq -nc \
