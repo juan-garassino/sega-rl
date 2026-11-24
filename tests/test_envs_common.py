@@ -28,7 +28,7 @@ class _StubRetro(gym.Env):
     def step(self, action):
         self.calls.append(np.array(action))
         self.n += 1
-        frame = np.full((224, 320, 3), self.n * 10, np.uint8)
+        frame = np.full((224, 320, 3), (self.n * 10) % 256, np.uint8)
         return frame, 0.0, False, False, {"score": self.n}
 
 
@@ -99,3 +99,31 @@ def test_airstriker_step_contract():
             assert info["buttons"].shape == (12,)
     finally:
         env.close()
+
+
+def test_events_on_middle_frame_survive_frame_skip():
+    def events(prev, info):
+        n = info["score"]
+        info["damage_dealt"] = 10
+        info["round_won"] = True if n == 2 else None
+        info["level_complete"] = n == 3
+        return 0.0, False
+
+    stub = _StubRetro()
+    env = RetroEnv("stub", None, events, combos=None, obs_mode="frame", frame_skip=4, inner=stub)
+    env.reset()
+    _, _, _, _, info = env.step(np.zeros(12, np.int8))
+    assert info["round_won"] is True
+    assert info["damage_dealt"] == 40
+    assert info["level_complete"] is True
+
+
+def test_noop_reset_varies_start():
+    counts = []
+    for seed in range(6):
+        stub = _StubRetro()
+        env = RetroEnv("stub", None, _score_reward, combos=None, obs_mode="frame", frame_skip=1,
+                       inner=stub, noop_max=30)
+        env.reset(seed=seed)
+        counts.append(len(stub.calls))
+    assert len(set(counts)) > 1 and max(counts) <= 30

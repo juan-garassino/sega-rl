@@ -187,3 +187,18 @@ def test_watchdog_fires_on_stall(tmp_path):
     data = json.loads((tmp_path / "h.json").read_text())
     assert data["status"] == "CRITICAL" and "stalled" in data["reasons"]
     cb.on_training_end()
+
+
+def test_heartbeat_keeps_watchdog_quiet(tmp_path):
+    import time as _time
+
+    fired = threading.Event()
+    cb = HealthCallback(HealthMonitor(Settings(total_steps=TOTAL)), tmp_path / "h.json",
+                        on_critical=lambda r: None, stall_secs=0.4, on_stall=lambda r: fired.set())
+    cb.init_callback(_StubModel())
+    cb.on_training_start({}, {})
+    for _ in range(8):
+        _time.sleep(0.1)
+        cb.heartbeat()
+    assert not fired.is_set()
+    cb.on_training_end()

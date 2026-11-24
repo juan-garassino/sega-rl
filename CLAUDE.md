@@ -21,10 +21,10 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | `train.py` | `run()`: resume, callbacks (checkpoints, health, eval, budget), env-crash handling, DONE marker |
 | `tune.py` | Optuna, upstream search space → best_params.json (`SEGARL_PARAMS_FILE`) |
 | `status.py` | `sega-rl status <run>`: live state from MLflow |
-| `cli.py` | `sega-rl train|tune|eval|smoke|status|import-roms` |
+| `cli.py` | `sega-rl train|tune|eval|smoke|status|check-rom|import-roms` |
 
-`runpod/`: `Dockerfile` (CUDA 12.8 devel, uv, cu126 torch swapped in), `entrypoint.sh` (lifecycle, see runpod/README.md),
-`scripts/pod_self.sh` (cost / self-terminate), `scripts/token_writer.sh`.
+`runpod/`: `Dockerfile` (CUDA 12.8 devel, uv, torch 2.14.1 cu126 swapped in, import check), `entrypoint.sh`
+(lifecycle, see runpod/README.md), `scripts/pod_self.sh` (cost / self-terminate with retries).
 `.github/workflows/`: `ci.yml`, `build-push.yml` (GHCR), `deploy-runpod.yml` (WIF token + pod create).
 
 ## Gotchas
@@ -34,7 +34,12 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 - `stable_retro.make` must get `render_mode=None` (default "human" needs OpenGL).
 - Torch: pyproject pins the CPU index (laptop/CI). Don't use extras for torch — SB3's transitive torch then resolves
   from PyPI (6 GB CUDA build). The image reinstalls torch from cu126.
-- GCS token on the pod lasts 1 h and is not refreshed; anything that must survive goes to MLflow.
+- GCS token on the pod lasts 1 h and is not refreshed; anything that must survive goes to MLflow (experiments use
+  `mlflow-artifacts:/<name>`; `train.run` refuses to start if MLflow is configured but an upload probe fails).
+- `RetroEnv` merges per-frame events across frame skip (`damage_*` summed, `round_won`/`level_complete` kept) —
+  reward fns may emit events on any sub-frame.
+- Resets take 0–30 random no-op frames (`SEGARL_NOOP_MAX`); without it every episode replays the same savestate.
+- Torch is pinned to 2.14.1 so the CPU lock and the image's cu126 wheel are the same version.
 - MLflow API needs `MLFLOW_TRACKING_USERNAME`/`MLFLOW_TRACKING_PASSWORD` (basic auth behind the GitHub OAuth proxy).
 - Local heavy jobs one at a time (laptop froze 2026-11-09): `nice`, ≤ 2 envs, never `docker build`.
 

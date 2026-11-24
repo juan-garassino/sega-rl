@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 # (prev_info, info) -> (reward, terminated_extra). May add keys to `info` (e.g. round_won).
 RewardFn = Callable[[dict, dict], tuple[float, bool]]
 
+# Per-frame events a reward fn may emit; merged across skipped frames so none is lost.
+SUM_KEYS = ("damage_dealt", "damage_taken")
+
 
 def preprocess(frame: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -47,6 +50,7 @@ class RetroEnv(gym.Env):
         frame_skip: int,
         inner: gym.Env | None = None,
         max_steps: int | None = None,
+        noop_max: int = 0,
     ):
         super().__init__()
         self.game = inner if inner is not None else _make_retro(game_id, state)
@@ -54,6 +58,7 @@ class RetroEnv(gym.Env):
         self.obs_mode = obs_mode
         self.frame_skip = frame_skip
         self.max_steps = max_steps
+        self.noop_max = noop_max
         self.buttons: list[str] = list(self.game.buttons)
         self.combos = combos
         if combos is None:
@@ -91,6 +96,12 @@ class RetroEnv(gym.Env):
         frame, info = self.game.reset(seed=seed)
         if hasattr(self.reward_fn, "reset"):
             self.reward_fn.reset()
+        # Random no-op start: otherwise every episode (and every parallel env) replays the same savestate.
+        noop = np.zeros(len(self.buttons), np.int8)
+        for _ in range(int(self.np_random.integers(0, self.noop_max + 1)) if self.noop_max else 0):
+            frame, _, term, trunc, info = self.game.step(noop)
+            if term or trunc:
+                frame, info = self.game.reset()
         self._prev_info = dict(info)
         self._prev_obs = None
         self._steps = 0
@@ -102,11 +113,19 @@ class RetroEnv(gym.Env):
         total, terminated, truncated = 0.0, False, False
         frames: list[np.ndarray] = []
         info: dict = {}
+        sums: dict[str, float] = {}
+        round_won, level_complete = None, False
         for _ in range(self.frame_skip):
             frame, _, term, trunc, info = self.game.step(buttons)
             info = dict(info)
             r, extra_term = self.reward_fn(self._prev_info, info)
             self._prev_info = info
+            for k in SUM_KEYS:
+                if k in info:
+                    sums[k] = sums.get(k, 0) + info[k]
+            if info.get("round_won") is not None:
+                round_won = info["round_won"]
+            level_complete = level_complete or bool(info.get("level_complete"))
             total += r
             frames.append(frame)
             terminated = terminated or term or extra_term
@@ -118,6 +137,11 @@ class RetroEnv(gym.Env):
         self._steps += 1
         if self.max_steps is not None and self._steps >= self.max_steps:
             truncated = True
+        info.update(sums)
+        if "round_won" in info:
+            info["round_won"] = round_won
+        if "level_complete" in info:
+            info["level_complete"] = level_complete
         info["buttons"] = buttons
         return self._observe(preprocess(pooled)), float(total), terminated, truncated, info
 

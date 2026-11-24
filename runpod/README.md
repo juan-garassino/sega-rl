@@ -12,14 +12,15 @@ eval videos, the best model and the final checkpoint go through MLflow (`--serve
 ## What the pod does (`entrypoint.sh`)
 
 1. Exits (and removes itself) if `gs://garassino-ml-artifacts/sega-rl/runs/<RUN_ID>/DONE` exists.
-2. Pulls ROMs from `gs://garassino-ml-artifacts/sega-rl/roms/`, imports them, then **deletes them from GCS**
-   (ROMs are uploaded right before each launch by `make launch`; not used for airstriker).
-   Failure → `health.json` CRITICAL `rom`, pod removed.
+2. Pulls ROMs from `gs://garassino-ml-artifacts/sega-rl/roms/` and **deletes them from GCS immediately**
+   (uploaded right before each launch by `make launch`; the deploy workflow also deletes them if no pod was
+   created), then imports and verifies them (`sega-rl check-rom`). Failure → CRITICAL `rom`, pod removed.
 3. Pulls the run dir (resume from the newest checkpoint).
 4. Reads its own USD/h (`pod_self.sh cost`) → `SEGARL_COST_PER_HR_USD`; training stops at
    min(`max_hours`, `max_eur` worth of hours).
 5. Syncs the run dir to GCS every `SYNC_INTERVAL` (600 s) while the token lasts; failures never stop training.
-6. Runs `sega-rl $MODE`; on any exit: final sync, then `pod_self.sh remove` (billing stops).
+6. Runs `sega-rl $MODE`; on any exit (incl. missing config): final sync, then `pod_self.sh remove`, retried 5×
+   (billing stops). If even that fails, the log says so — remove the pod in the RunPod console.
 
 ## Watch a run
 

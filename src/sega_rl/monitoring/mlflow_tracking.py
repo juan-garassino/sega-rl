@@ -48,17 +48,33 @@ def _safe(fn):
     return wrapper
 
 
-@_safe
-def start(cfg: Settings) -> None:
+def start(cfg: Settings, probe: Path | None = None) -> bool:
+    """Open the run and prove artifact uploads work by uploading `probe`. False = no durable channel."""
     global _active
-    import mlflow
+    if not enabled():
+        return False
+    try:
+        import mlflow
 
-    mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
-    mlflow.set_experiment(EXPERIMENT)
-    mlflow.start_run(run_name=cfg.run_id)
-    mlflow.set_tag("game", cfg.game)
-    mlflow.log_params({k: str(v) for k, v in cfg.model_dump().items()})
-    _active = True
+        mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+        if mlflow.get_experiment_by_name(EXPERIMENT) is None:
+            # mlflow-artifacts:/ routes uploads through the server, so the pod needs no GCS credentials.
+            mlflow.create_experiment(EXPERIMENT, artifact_location=f"mlflow-artifacts:/{EXPERIMENT}")
+        mlflow.set_experiment(EXPERIMENT)
+        mlflow.start_run(run_name=cfg.run_id)
+        mlflow.set_tag("game", cfg.game)
+        mlflow.log_params({k: str(v) for k, v in cfg.model_dump().items()})
+        if probe is not None:
+            mlflow.log_artifact(str(probe))
+        _active = True
+        return True
+    except Exception as e:
+        logger.error("mlflow start failed: %s: %s", type(e).__name__, e)
+        try:
+            mlflow.end_run()
+        except Exception:
+            pass
+        return False
 
 
 @_require_active

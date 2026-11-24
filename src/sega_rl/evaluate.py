@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Callable
 
@@ -28,7 +28,7 @@ class EvalResult:
 
 
 def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None,
-             max_steps: int | None = None) -> EvalResult:
+             max_steps: int | None = None, heartbeat: Callable[[], None] | None = None) -> EvalResult:
     """Deterministic episodes in one env (the training process hosts no emulator, so this is allowed)."""
     max_steps = max_steps or cfg.eval_max_steps
     venv = VecFrameStack(DummyVecEnv([make_single(cfg, rank=10_000)]), cfg.frame_stack, channels_order="last")
@@ -42,6 +42,8 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
             ep_ret = ep_dealt = ep_taken = 0.0
             last_info: dict = {}
             for _ in range(max_steps):
+                if heartbeat is not None:
+                    heartbeat()
                 action, _ = model.predict(obs, deterministic=True)
                 obs, reward, done, infos = venv.step(action)
                 last_info = infos[0]
@@ -89,13 +91,24 @@ def score(game: str, r: EvalResult) -> tuple[float, ...]:
 class EvalCallback(BaseCallback):
     """Every cfg.eval_freq steps: deterministic eval + one video; keeps best_model.zip."""
 
-    def __init__(self, cfg: Settings, run_dir: Path, eval_fn: Callable[..., EvalResult] = run_eval):
+    def __init__(self, cfg: Settings, run_dir: Path, eval_fn: Callable[..., EvalResult] = run_eval,
+                 heartbeat: Callable[[], None] | None = None):
         super().__init__()
         self.cfg = cfg
         self.run_dir = Path(run_dir)
         self.eval_fn = eval_fn
+        self.heartbeat = heartbeat
         self.next_eval = cfg.eval_freq
-        self.best: tuple[float, ...] | None = None
+        self.best: tuple[float, ...] | None = self._load_best()
+
+    def _load_best(self) -> tuple[float, ...] | None:
+        """On resume, keep the best-so-far bar so a worse model can't overwrite best_model.zip."""
+        path = self.run_dir / "best.json"
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+        known = {f.name for f in fields(EvalResult)}
+        return score(self.cfg.game, EvalResult(**{k: v for k, v in data.items() if k in known}))
 
     def _on_step(self) -> bool:
         if self.model.num_timesteps < self.next_eval:
@@ -103,7 +116,8 @@ class EvalCallback(BaseCallback):
         steps = self.model.num_timesteps
         self.next_eval = (steps // self.cfg.eval_freq + 1) * self.cfg.eval_freq
         video = self.run_dir / "videos" / f"eval_{steps:010d}.mp4"
-        result = self.eval_fn(self.model, self.cfg, self.cfg.eval_episodes, video_path=video)
+        result = self.eval_fn(self.model, self.cfg, self.cfg.eval_episodes, video_path=video,
+                              heartbeat=self.heartbeat)
         if video.exists():
             mlflow_tracking.log_artifact(video, "videos")
         for k, v in asdict(result).items():
@@ -116,4 +130,5 @@ class EvalCallback(BaseCallback):
             self.model.save(self.run_dir / "best_model.zip")
             (self.run_dir / "best.json").write_text(json.dumps({"step": steps, **asdict(result)}, default=float))
             mlflow_tracking.log_artifact(self.run_dir / "best.json")
+            mlflow_tracking.log_artifact(self.run_dir / "best_model.zip")
         return True

@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("smoke", help="2-env Airstriker run, ~2k steps, in a temp dir")
     st = sub.add_parser("status", help="live run state from MLflow (health, eval, fps)")
     st.add_argument("run_name", help="run id = MLflow run name, e.g. sf-20261124-180000")
+    sub.add_parser("check-rom", help="exit 1 unless SEGARL_GAME's ROM is imported (right dump)")
     imp = sub.add_parser("import-roms", help="import ROMs into stable-retro")
     imp.add_argument("--dir", type=Path, default=Path("roms"))
     return p
@@ -87,6 +88,26 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def rom_available(game: str) -> bool:
+    import stable_retro
+
+    from sega_rl.envs import airstriker, sonic, street_fighter
+
+    game_id = {"sf": street_fighter.GAME_ID, "sonic": sonic.GAME_ID, "airstriker": airstriker.GAME_ID}[game]
+    try:
+        stable_retro.data.get_romfile_path(game_id)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def _cmd_check_rom(args: argparse.Namespace) -> int:
+    game = Settings().game
+    ok = rom_available(game)
+    print(f"{game}: ROM {'ok' if ok else 'MISSING (not imported or wrong dump)'}")
+    return 0 if ok else 1
+
+
 def _cmd_import_roms(args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, "-m", "stable_retro.import", str(args.dir)])
 
@@ -94,6 +115,6 @@ def _cmd_import_roms(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
-    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke, "status": _cmd_status,
+    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke, "status": _cmd_status, "check-rom": _cmd_check_rom,
                 "import-roms": _cmd_import_roms}
     return handlers[args.cmd](args)

@@ -204,8 +204,12 @@ class HealthCallback(BaseCallback):
                 self.on_stall(report)
                 return
 
-    def _on_step(self) -> bool:
+    def heartbeat(self) -> None:
+        """Tell the watchdog the run is alive (also called during eval, which takes no env steps)."""
         self._last_progress = time.monotonic()
+
+    def _on_step(self) -> bool:
+        self.heartbeat()
         for info in self.locals.get("infos", []):
             b = info.get("buttons")
             if b is None:
@@ -216,6 +220,7 @@ class HealthCallback(BaseCallback):
         return not self._stop
 
     def _on_rollout_end(self) -> None:
+        self.heartbeat()
         values = self.logger.name_to_value
         now = time.monotonic()
         t_prev, steps_prev = self._last_rollout

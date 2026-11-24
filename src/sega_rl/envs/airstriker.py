@@ -12,4 +12,4 @@ def score_reward(prev: dict, info: dict) -> tuple[float, bool]:
 
 def make(cfg: Settings) -> RetroEnv:
     return RetroEnv(GAME_ID, cfg.state, score_reward, combos=None,
-                    obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip)
+                    obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max)

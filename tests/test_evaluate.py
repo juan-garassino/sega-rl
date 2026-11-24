@@ -73,3 +73,41 @@ def test_best_model_selection(tmp_path):
         cb.on_step()
     assert len(model.saved) == 2
     assert (tmp_path / "best.json").exists()
+
+
+def test_eval_heartbeat_called_per_step():
+    from gymnasium.spaces import MultiBinary
+
+    beats = []
+    run_eval(_RandomModel(MultiBinary(12)), Settings(game="airstriker"), episodes=1, max_steps=20,
+             heartbeat=lambda: beats.append(1))
+    assert len(beats) >= 20
+
+
+def test_best_restored_on_resume(tmp_path):
+    import json as _json
+    from gymnasium.spaces import MultiBinary
+
+    (tmp_path / "best.json").write_text(_json.dumps({"step": 1, "win_rate": 0.5, "mean_damage_dealt": 0,
+                                                     "mean_damage_taken": 0, "mean_return": 0.0}))
+    results = iter([EvalResult(win_rate=0.3, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0.0)])
+    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=lambda *a, **k: next(results))
+    model = _RandomModel(MultiBinary(12))
+    cb.init_callback(model)
+    model.num_timesteps = 100
+    cb.on_step()
+    assert model.saved == []
+
+
+def test_best_model_uploaded_on_improvement(tmp_path, monkeypatch):
+    from gymnasium.spaces import MultiBinary
+
+    uploads = []
+    monkeypatch.setattr(mlflow_tracking, "log_artifact", lambda p, a=None: uploads.append(str(p)))
+    results = iter([EvalResult(win_rate=0.2, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0.0)])
+    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=lambda *a, **k: next(results))
+    model = _RandomModel(MultiBinary(12))
+    cb.init_callback(model)
+    model.num_timesteps = 100
+    cb.on_step()
+    assert any(u.endswith("best_model.zip") for u in uploads)

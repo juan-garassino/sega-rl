@@ -52,4 +52,4 @@ class SonicReward:
 
 def make(cfg: Settings) -> RetroEnv:
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(), combos=SONIC_ACTIONS,
-                    obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, max_steps=MAX_STEPS)
+                    obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS)

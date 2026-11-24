@@ -22,7 +22,9 @@ import-roms:  ## Import ROMs from roms/ into stable-retro (local runs)
 
 launch:  ## Upload one ROM to private GCS and start a pod: make launch GAME=sf|sonic [ARGS="-f n_envs=32"]
 	@if [ -z "$(GAME)" ]; then echo "Usage: make launch GAME=sf|sonic"; exit 1; fi
-	@if gcloud storage buckets get-iam-policy gs://garassino-ml-artifacts --format=json | grep -q allUsers; then \
+	@policy=$$(gcloud storage buckets get-iam-policy gs://garassino-ml-artifacts --format=json) || { \
+		echo "cannot read bucket policy — refusing to upload ROMs"; exit 1; }; \
+	if echo "$$policy" | grep -qE 'allUsers|allAuthenticatedUsers'; then \
 		echo "bucket is public — refusing to upload ROMs"; exit 1; fi
 	gcloud storage cp "$(ROM_$(GAME))" $(GCS_ROMS)/
 	gh workflow run deploy-runpod.yml -f game=$(GAME) $(ARGS)

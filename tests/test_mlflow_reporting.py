@@ -57,6 +57,9 @@ class _FakeMlflow:
     def set_tracking_uri(self, uri):
         self.calls.append("uri")
 
+    def get_experiment_by_name(self, name):
+        return object()
+
     def set_experiment(self, name):
         if self.fail_start:
             raise RuntimeError("401 not authenticated")
@@ -97,4 +100,46 @@ def test_successful_start_enables_logging(monkeypatch):
     mlflow_tracking.log_metrics({"a": 1.0}, step=1)
     mlflow_tracking.end("done")
     assert fake.calls.count("metrics") == 1 and "end" in fake.calls
+    assert mlflow_tracking._active is False
+
+
+class _ExpFakeMlflow(_FakeMlflow):
+    def __init__(self, fail_artifact=False):
+        super().__init__(fail_start=False)
+        self.fail_artifact = fail_artifact
+        self.created = None
+
+    def get_experiment_by_name(self, name):
+        return None
+
+    def create_experiment(self, name, artifact_location=None):
+        self.created = (name, artifact_location)
+
+    def log_artifact(self, path, artifact_path=None):
+        if self.fail_artifact:
+            raise RuntimeError("upload failed")
+        self.calls.append("artifact")
+
+
+def test_start_creates_experiment_with_proxied_artifacts(monkeypatch, tmp_path):
+    fake = _ExpFakeMlflow()
+    monkeypatch.setitem(__import__("sys").modules, "mlflow", fake)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://x")
+    monkeypatch.setattr(mlflow_tracking, "_active", False)
+    probe = tmp_path / "config.json"
+    probe.write_text("{}")
+    assert mlflow_tracking.start(Settings(), probe=probe) is True
+    assert fake.created == ("sega-rl", "mlflow-artifacts:/sega-rl")
+    assert "artifact" in fake.calls
+    mlflow_tracking.end("done")
+
+
+def test_start_returns_false_when_probe_upload_fails(monkeypatch, tmp_path):
+    fake = _ExpFakeMlflow(fail_artifact=True)
+    monkeypatch.setitem(__import__("sys").modules, "mlflow", fake)
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://x")
+    monkeypatch.setattr(mlflow_tracking, "_active", False)
+    probe = tmp_path / "config.json"
+    probe.write_text("{}")
+    assert mlflow_tracking.start(Settings(), probe=probe) is False
     assert mlflow_tracking._active is False

@@ -31,7 +31,7 @@ jobs:
       - run: >
           uv run python -c "import sega_rl.cli, sega_rl.train, sega_rl.evaluate,
           sega_rl.monitoring.health, sega_rl.monitoring.mlflow_tracking, sega_rl.envs.factory"
-      - run: bash -n runpod/entrypoint.sh && bash -n runpod/scripts/pod_self.sh && bash -n runpod/scripts/token_writer.sh
+      - run: bash -n runpod/entrypoint.sh && bash -n runpod/scripts/pod_self.sh
 
   mlflow-auth:
     # Proves the MLflow secrets work (401 = wrong/empty credentials) before any paid pod relies on them.

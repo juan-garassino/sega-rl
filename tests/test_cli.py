@@ -14,3 +14,17 @@ def test_train_overrides():
 def test_requires_subcommand():
     with pytest.raises(SystemExit):
         build_parser().parse_args([])
+
+
+def test_check_rom(monkeypatch):
+    import stable_retro
+
+    from sega_rl.cli import rom_available
+
+    assert rom_available("airstriker") is True
+
+    def missing(game_id):
+        raise FileNotFoundError(game_id)
+
+    monkeypatch.setattr(stable_retro.data, "get_romfile_path", missing)
+    assert rom_available("sf") is False

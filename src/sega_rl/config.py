@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     reward_mode: Literal["shaped", "score"] = "shaped"  # SEGARL_REWARD_MODE=score
     frame_skip: int = 4  # SEGARL_FRAME_SKIP=4
     frame_stack: int = 4  # SEGARL_FRAME_STACK=4
+    noop_max: int = 30  # SEGARL_NOOP_MAX=30 (random no-op frames at reset; 0 = always the same start)
     seed: int = 0  # SEGARL_SEED=0
     params_file: Path | None = None  # SEGARL_PARAMS_FILE=runs/x/best_params.json
     eval_freq: int = 250_000  # SEGARL_EVAL_FREQ=250000

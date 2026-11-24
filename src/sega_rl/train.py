@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Callable
@@ -54,6 +55,7 @@ class CheckpointKeeper(BaseCallback):
         self.model.save(path)
         for old in sorted(self.ckpt_dir.glob("ckpt_*.zip"))[: -self.cfg.keep_ckpts]:
             old.unlink()
+        mlflow_tracking.log_artifact(path, "checkpoints")  # durable copy: GCS access ends after 1 h
         return path
 
     def _on_step(self) -> bool:
@@ -115,41 +117,61 @@ def _make_logger(run_dir: Path) -> Logger:
     return Logger(tb, formats)
 
 
+def _stall_handler(run_dir: Path) -> Callable:
+    def on_stall(report) -> None:
+        logger.critical("no training progress for too long, exiting: %s", report.reasons)
+        (run_dir / "DONE").write_text("stalled")
+        mlflow_tracking.set_tag("health_status", "CRITICAL")
+        mlflow_tracking.set_tag("health_reasons", ",".join(report.reasons))
+        mlflow_tracking.end("stalled")
+        os._exit(3)  # the main thread is stuck; the entrypoint's EXIT trap syncs and removes the pod
+
+    return on_stall
+
+
 def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env) -> str:
-    """Train (or resume) until cfg.steps, CRITICAL health, or the time budget. Returns done|critical|budget."""
+    """Train (or resume) until cfg.steps, CRITICAL health, or the time budget.
+
+    Returns done | critical | budget | mlflow_unavailable. DONE, the final checkpoint and the MLflow
+    uploads happen on every exit path.
+    """
     run_dir = cfg.run_dir
     ckpt_dir = run_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.json").write_text(cfg.model_dump_json(indent=2))
     deadline = time.time() + cfg.hours_budget * 3600
 
-    env = env_factory(cfg)
-    resume_from = _latest_checkpoint(ckpt_dir)
-    if resume_from:
-        logger.info("resuming from %s", resume_from)
-        model = PPO.load(resume_from, env=env)
-    else:
-        model = build_model(cfg, env)
-    model.set_logger(_make_logger(run_dir))
-    mlflow_tracking.start(cfg)
+    if mlflow_tracking.enabled() and not mlflow_tracking.start(cfg, probe=run_dir / "config.json"):
+        logger.error("MLflow is configured but unusable — refusing to train without a durable channel")
+        (run_dir / "DONE").write_text("mlflow_unavailable")
+        return "mlflow_unavailable"
 
     health = HealthCallback(
         HealthMonitor(cfg, check_button_spam=cfg.game != "sonic"),
         run_dir / "health.json",
         on_critical=lambda r: logger.error("CRITICAL training health: %s", r.reasons),
         stall_secs=cfg.fps_zero_secs,
+        on_stall=_stall_handler(run_dir),
         on_report=HealthReporter(run_dir / "health.json"),
     )
     keeper = CheckpointKeeper(cfg, ckpt_dir)
     budget = BudgetCallback(deadline)
-    callbacks = CallbackList([keeper, health, EvalCallback(cfg, run_dir), budget])
 
-    status = "done"
-    remaining = cfg.steps - model.num_timesteps
+    status, model, env = "done", None, None
     try:
+        env = env_factory(cfg)
+        resume_from = _latest_checkpoint(ckpt_dir)
+        if resume_from:
+            logger.info("resuming from %s", resume_from)
+            model = PPO.load(resume_from, env=env)
+        else:
+            model = build_model(cfg, env)
+        model.set_logger(_make_logger(run_dir))
+        callbacks = CallbackList([keeper, health, EvalCallback(cfg, run_dir, heartbeat=health.heartbeat), budget])
+        remaining = cfg.steps - model.num_timesteps
         if remaining > 0:
             model.learn(total_timesteps=remaining, callback=callbacks, reset_num_timesteps=resume_from is None,
-                        log_interval=1)
+                        log_interval=10)
         if health.last_report and health.last_report.status == "CRITICAL":
             status = "critical"
         elif budget.hit:
@@ -158,19 +180,25 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         logger.exception("environment worker crashed: %s", e)
         health.write(health.monitor.mark_critical("env_crash"))
         status = "critical"
+    except Exception as e:  # e.g. NaN logits raise inside predict before any health check can run
+        logger.exception("training crashed: %s", e)
+        health.write(health.monitor.mark_critical("crash"))
+        status = "critical"
     finally:
-        keeper.model = model
-        final_ckpt = keeper.save()
-        try:
-            env.close()
-        except Exception:
-            logger.exception("env.close failed")
+        if model is not None:
+            keeper.model = model
+            keeper.save()
+        if env is not None:
+            try:
+                env.close()
+            except Exception:
+                logger.exception("env.close failed")
+        (run_dir / "DONE").write_text(status)
+        for artifact in ("health.json", "best.json", "DONE"):
+            if (run_dir / artifact).exists():
+                mlflow_tracking.log_artifact(run_dir / artifact)
+        mlflow_tracking.set_tag("health_status", health.last_report.status if health.last_report else "UNKNOWN")
+        mlflow_tracking.end(status)
 
-    (run_dir / "DONE").write_text(status)
-    for artifact in ("health.json", "best.json", "best_model.zip", "DONE"):
-        if (run_dir / artifact).exists():
-            mlflow_tracking.log_artifact(run_dir / artifact)
-    mlflow_tracking.log_artifact(final_ckpt, "checkpoints")
-    mlflow_tracking.end(status)
-    logger.info("run %s finished: %s at %d steps", cfg.run_id, status, model.num_timesteps)
+    logger.info("run %s finished: %s at %d steps", cfg.run_id, status, model.num_timesteps if model else 0)
     return status
