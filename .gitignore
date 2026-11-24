@@ -1,0 +1,10 @@
+roms/
+runs/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.zip
+*.mp4
+.env
+.superpowers/
