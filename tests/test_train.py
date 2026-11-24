@@ -133,3 +133,10 @@ def test_checkpoint_uploaded_each_save(tmp_path, monkeypatch):
     monkeypatch.setattr(mlflow_tracking, "log_artifact", lambda p, a=None: uploads.append((str(p), a)))
     run(_cfg(tmp_path, eval_freq=10_000))
     assert sum(1 for _, a in uploads if a == "checkpoints") >= 2  # periodic + final
+
+
+def test_torch_threads_leave_cores_for_envs():
+    from sega_rl.train import torch_threads
+
+    assert torch_threads(cpu_count=32, n_envs=16) == 16
+    assert torch_threads(cpu_count=8, n_envs=16) == 2

@@ -40,22 +40,22 @@ on:
         description: 'Spend cap in EUR (empty = per-game default: sf 8, sonic 7)'
         required: false
         default: ''
+      compute_type:
+        description: 'CPU pod (emulation is CPU-bound; cheap, plentiful) or GPU pod'
+        required: true
+        type: choice
+        default: CPU
+        options: [CPU, GPU]
+      vcpu:
+        description: 'vCPUs: exact for CPU pods (2-32), minimum for GPU pods'
+        required: true
+        default: '32'
       gpu_type:
-        description: 'GPU (training is CPU-bound; cheapest is fine)'
+        description: 'GPU pods only (training is CPU-bound; cheapest is fine)'
         required: true
         type: choice
         default: 'NVIDIA RTX A4000'
         options: ['NVIDIA RTX A4000', 'NVIDIA RTX A5000', 'NVIDIA GeForce RTX 3090', 'NVIDIA RTX 4000 Ada Generation']
-      cloud_type:
-        description: 'RunPod cloud'
-        required: true
-        type: choice
-        default: SECURE  # community hosts are third-party machines; the pod env holds a RunPod key
-        options: [SECURE, COMMUNITY]
-      min_vcpu:
-        description: 'Minimum vCPUs'
-        required: true
-        default: '16'
 
 concurrency:
   group: deploy-runpod
@@ -113,9 +113,20 @@ jobs:
             + (if $steps == "" then [] else [{key:"SEGARL_TOTAL_STEPS", value:$steps}] end)
             + (if $max_eur == "" then [] else [{key:"SEGARL_MAX_EUR", value:$max_eur}] end)')
 
+          if [ "${{ inputs.compute_type }}" = CPU ]; then
+            BODY=$(jq -nc --arg name "sega-rl-$RUN_ID" --argjson vcpu "${{ inputs.vcpu }}" --argjson env "$ENV_JSON" \
+              '{name: $name, imageName: "ghcr.io/juan-garassino/sega-rl:latest", computeType: "CPU",
+                cpuFlavorIds: ["cpu5c", "cpu3c"], vcpuCount: $vcpu, cloudType: "SECURE",
+                containerDiskInGb: 40, volumeInGb: 0, env: ($env | map({(.key): .value}) | add)}')
+            RESP=$(curl -s -X POST https://rest.runpod.io/v1/pods \
+              -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" -d "$BODY")
+            POD_ID=$(echo "$RESP" | jq -r '.id // empty')
+            COST=$(echo "$RESP" | jq -r '.costPerHr // "?"')
+            [ -n "$POD_ID" ] || { echo "::error::CPU pod deploy failed"; echo "$RESP" | jq 'del(.env)' 2>/dev/null || echo "$RESP" | head -c 500; exit 1; }
+          else
           QUERY=$(jq -nc \
-            --arg name "sega-rl-$RUN_ID" --arg gpu "${{ inputs.gpu_type }}" --arg cloud "${{ inputs.cloud_type }}" \
-            --argjson vcpu "${{ inputs.min_vcpu }}" --argjson env "$ENV_JSON" \
+            --arg name "sega-rl-$RUN_ID" --arg gpu "${{ inputs.gpu_type }}" --arg cloud "SECURE" \
+            --argjson vcpu "${{ inputs.vcpu }}" --argjson env "$ENV_JSON" \
             '{
               query: "mutation Deploy($input: PodFindAndDeployOnDemandInput!) { podFindAndDeployOnDemand(input: $input) { id costPerHr machineId } }",
               variables: { input: {
@@ -133,6 +144,7 @@ jobs:
             echo "::error::Pod deploy failed"; echo "$RESP" | jq 'del(.data)'; exit 1; }
           POD_ID=$(echo "$RESP" | jq -r '.data.podFindAndDeployOnDemand.id')
           COST=$(echo "$RESP" | jq -r '.data.podFindAndDeployOnDemand.costPerHr')
+          fi
           {
             echo "## sega-rl pod"
             echo "- **Pod:** \`$POD_ID\` — **\$$COST/h**"
