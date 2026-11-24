@@ -11,6 +11,7 @@ Game = Literal["sf", "sonic", "airstriker"]
 
 _TOTAL_STEPS = {"airstriker": 1_000_000, "sf": 10_000_000, "sonic": 10_000_000}
 _MAX_EUR = {"airstriker": 1.0, "sf": 8.0, "sonic": 7.0}
+_EVAL_EPISODES = {"airstriker": 5, "sf": 15, "sonic": 5}
 _LEARNING_RATE = {"airstriker": 2.5e-4, "sf": 1e-4, "sonic": 2.5e-4}  # sf: clip_fraction ran high at 2.5e-4
 
 
@@ -51,7 +52,7 @@ class Settings(BaseSettings):
     seed: int = 0  # SEGARL_SEED=0
     params_file: Path | None = None  # SEGARL_PARAMS_FILE=runs/x/best_params.json
     eval_freq: int = 250_000  # SEGARL_EVAL_FREQ=250000
-    eval_episodes: int = 5  # SEGARL_EVAL_EPISODES=5
+    eval_episodes: int | None = None  # SEGARL_EVAL_EPISODES=5 (None = per game: sf 15 so an eval has >= 30 rounds)
     eval_max_steps: int = 4500  # SEGARL_EVAL_MAX_STEPS=4500 (agent steps per eval episode)
     ckpt_freq: int = 250_000  # SEGARL_CKPT_FREQ=250000
     keep_ckpts: int = 3  # SEGARL_KEEP_CKPTS=3
@@ -76,6 +77,10 @@ class Settings(BaseSettings):
     @property
     def steps(self) -> int:
         return self.total_steps if self.total_steps is not None else default_total_steps(self.game)
+
+    @property
+    def n_eval_episodes(self) -> int:
+        return self.eval_episodes if self.eval_episodes is not None else _EVAL_EPISODES[self.game]
 
     @property
     def budget_eur(self) -> float:

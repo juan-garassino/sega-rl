@@ -15,7 +15,7 @@ from stable_baselines3.common.vec_env import VecEnv
 
 from sega_rl.config import Settings, default_learning_rate
 from sega_rl.envs.factory import make_vec_env
-from sega_rl.evaluate import EvalCallback
+from sega_rl.evaluate import EvalCallback, run_baselines
 from sega_rl.monitoring import mlflow_tracking
 from sega_rl.monitoring.health import HealthCallback, HealthMonitor
 
@@ -176,6 +176,9 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         else:
             model = build_model(cfg, env)
         model.set_logger(_make_logger(run_dir))
+        if cfg.game in ("sf", "sonic"):
+            mlflow_tracking.log_metrics(run_baselines(cfg, run_dir, env.action_space), step=0)
+            mlflow_tracking.log_artifact(run_dir / "baselines.json")
         callbacks = CallbackList([keeper, health, EvalCallback(cfg, run_dir, heartbeat=health.heartbeat), budget])
         remaining = cfg.steps - model.num_timesteps
         if remaining > 0:

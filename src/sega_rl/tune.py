@@ -34,7 +34,7 @@ def run(cfg: Settings, n_trials: int = 10, trial_steps: int = 100_000) -> dict:
             model.learn(total_timesteps=trial_steps)
         finally:
             env.close()
-        return run_eval(model, cfg, cfg.eval_episodes).mean_return
+        return run_eval(model, cfg, cfg.n_eval_episodes).mean_return
 
     study = optuna.create_study(direction="maximize")
     study.optimize(objective, n_trials=n_trials, catch=(Exception,))
