@@ -115,11 +115,19 @@ jobs:
 
           if [ "${{ inputs.compute_type }}" = CPU ]; then
             # REST v2 (same call as the official runpod SDK's create_pod for CPU pods).
-            BODY=$(jq -nc --arg name "${{ github.event.repository.name }}-$RUN_ID" --argjson vcpu "${{ inputs.vcpu }}" --argjson env "$ENV_JSON" \
-              '{name: $name, image: "ghcr.io/juan-garassino/sega-rl:cpu", cloud: "SECURE", disk: 40, startSsh: false,
-                cpu: {id: "cpu5c", vcpuCount: $vcpu}, env: ($env | map({(.key): .value}) | add)}')
-            RESP=$(curl -s --max-time 60 -X POST https://api.runpod.io/v2/pods \
-              -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" -d "$BODY")
+            # Stock changes by the minute: try each flavour at the requested vCPUs, then at 16.
+            RESP=""
+            for VCPU in "${{ inputs.vcpu }}" 16; do
+              for FLAVOR in cpu5c cpu3c cpu5g cpu3g; do
+                BODY=$(jq -nc --arg name "${{ github.event.repository.name }}-$RUN_ID" --arg flavor "$FLAVOR" --argjson vcpu "$VCPU" --argjson env "$ENV_JSON" \
+                  '{name: $name, image: "ghcr.io/juan-garassino/sega-rl:cpu", cloud: "SECURE", disk: 40, startSsh: false,
+                    cpu: {id: $flavor, vcpuCount: $vcpu}, env: ($env | map({(.key): .value}) | add)}')
+                RESP=$(curl -s --max-time 60 -X POST https://api.runpod.io/v2/pods \
+                  -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" -d "$BODY")
+                if echo "$RESP" | jq -e '.id' >/dev/null 2>&1; then echo "got $FLAVOR x $VCPU vCPU"; break 2; fi
+                echo "no $FLAVOR x $VCPU vCPU: $(echo "$RESP" | head -c 160)"
+              done
+            done
             POD_ID=$(echo "$RESP" | jq -r '.id // empty')
             COST=$(echo "$RESP" | jq -r '.costPerHr // .cost // "?"')
             [ -n "$POD_ID" ] || { echo "::error::CPU pod deploy failed"; echo "$RESP" | jq 'del(.env)' 2>/dev/null || echo "$RESP" | head -c 500; exit 1; }
