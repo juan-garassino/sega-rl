@@ -116,7 +116,7 @@ jobs:
           if [ "${{ inputs.compute_type }}" = CPU ]; then
             # REST v2 (same call as the official runpod SDK's create_pod for CPU pods).
             BODY=$(jq -nc --arg name "${{ github.event.repository.name }}-$RUN_ID" --argjson vcpu "${{ inputs.vcpu }}" --argjson env "$ENV_JSON" \
-              '{name: $name, image: "ghcr.io/juan-garassino/sega-rl:latest", cloud: "SECURE", disk: 40, startSsh: false,
+              '{name: $name, image: "ghcr.io/juan-garassino/sega-rl:cpu", cloud: "SECURE", disk: 40, startSsh: false,
                 cpu: {id: "cpu5c", vcpuCount: $vcpu}, env: ($env | map({(.key): .value}) | add)}')
             RESP=$(curl -s --max-time 60 -X POST https://api.runpod.io/v2/pods \
               -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" -d "$BODY")

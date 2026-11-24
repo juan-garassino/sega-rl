@@ -31,6 +31,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the slim CPU image (default for CPU pods)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: runpod/Dockerfile.cpu
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ghcr.io/juan-garassino/sega-rl:cpu
+            ghcr.io/juan-garassino/sega-rl:cpu-${{ github.sha }}
+          cache-from: type=gha,scope=cpu
+          cache-to: type=gha,mode=max,scope=cpu
       - uses: docker/build-push-action@v5
         with:
           context: .
