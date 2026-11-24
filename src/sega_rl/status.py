@@ -45,7 +45,7 @@ def _client():
 
 
 def fetch_videos(run_name: str, dest: Path, client=None) -> list[Path]:
-    """Download the run's eval replays that aren't on this machine yet into dest/<run_name>/."""
+    """Download new eval replays (and always the current best_model.zip) into dest/<run_name>/."""
     client = client or _client()
     exp = client.get_experiment_by_name(EXPERIMENT)
     runs = client.search_runs([exp.experiment_id], f"tags.mlflow.runName = '{run_name}'", max_results=1) if exp else []
@@ -61,4 +61,8 @@ def fetch_videos(run_name: str, dest: Path, client=None) -> list[Path]:
             if not target.exists():
                 shutil.copy2(mp4, target)
                 new.append(target)
+        try:
+            shutil.copy2(client.download_artifacts(runs[0].info.run_id, "best_model.zip", tmp), out_dir / "best_model.zip")
+        except Exception:
+            pass  # no eval has produced a best model yet
     return new

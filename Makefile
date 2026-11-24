@@ -1,4 +1,4 @@
-.PHONY: help install test smoke import-roms launch status videos clean
+.PHONY: help install test smoke import-roms launch status videos play clean
 
 GCS_ROMS := gs://garassino-ml-artifacts/sega-rl/roms
 ROM_sf := roms/Street Fighter II' - Special Champion Edition (USA).md
@@ -33,9 +33,14 @@ status:  ## Live run state from MLflow: make status RUN=sf-20261124-180000
 	@if [ -z "$(RUN)" ]; then echo "Usage: make status RUN=<run id>"; exit 1; fi
 	@uv run sega-rl status $(RUN) 2>/dev/null
 
-videos:  ## Download a run's eval replays to ~/Videos/rl-series/<run>: make videos RUN=sf-20261124-180000
+videos:  ## Download eval replays + best_model.zip to ~/Videos/rl-series/<run>: make videos RUN=sf-20261124-180000
 	@if [ -z "$(RUN)" ]; then echo "Usage: make videos RUN=<run id>"; exit 1; fi
 	@uv run sega-rl videos $(RUN)
+
+play:  ## Replay a run's best model locally, full episode → mp4: make play RUN=sf-... GAME=sf
+	@if [ -z "$(RUN)" ] || [ -z "$(GAME)" ]; then echo "Usage: make play RUN=<run id> GAME=sf|sonic"; exit 1; fi
+	nice -n 19 uv run sega-rl eval --game $(GAME) --model $(HOME)/Videos/rl-series/$(RUN)/best_model.zip \
+		--episodes 1 --video $(HOME)/Videos/rl-series/$(RUN)/local_play.mp4
 
 clean:  ## Remove caches and local runs
 	rm -rf .pytest_cache runs **/__pycache__

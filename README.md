@@ -39,7 +39,9 @@ make smoke          # 2 envs, 2k steps on Airstriker, ~90 s
 ```bash
 make launch GAME=sf                 # uploads the ROM to the private bucket, dispatches deploy-runpod
 make status RUN=sf-20261124-180000  # health, eval win rate / progress, fps — read from MLflow
-make videos RUN=sf-20261124-180000  # eval replays → ~/Videos/rl-series/<run>/
+make videos RUN=sf-20261124-180000  # eval replays + best_model.zip → ~/Videos/rl-series/<run>/
+make play RUN=sf-20261124-180000 GAME=sf  # replay the best model locally → local_play.mp4
+make launch GAME=sf ARGS="-f run_id=<same id> -f max_eur=5"  # extend a run that stopped on its budget
 ```
 
 The pod pulls the ROM and deletes it from GCS, trains, and **removes itself** when it finishes, when training health

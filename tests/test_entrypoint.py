@@ -11,7 +11,8 @@ REPO = Path(__file__).resolve().parents[1]
 GSUTIL = r'''#!/usr/bin/env bash
 echo "gsutil $*" >> "$CALLS"
 case "$*" in
-  *stat*DONE*) [ "${STUB_DONE:-0}" = 1 ] && exit 0 || exit 1 ;;
+  *cat*DONE*) [ -n "${STUB_DONE:-}" ] && { echo "$STUB_DONE"; exit 0; } || exit 1 ;;
+  *rm*DONE*) exit 0 ;;
   *cp*roms*) [ "${STUB_ROM_FAIL:-0}" = 1 ] && exit 1 || exit 0 ;;
   *rm*roms*) exit 0 ;;
   *rsync*) [ "${STUB_RSYNC_FAIL:-0}" = 1 ] && exit 1 || exit 0 ;;
@@ -65,7 +66,7 @@ def _run(tmp_path: Path, **env_overrides) -> tuple[int, str, Path]:
 
 
 def test_entrypoint_done_marker_exits(tmp_path):
-    rc, calls, _ = _run(tmp_path, STUB_DONE="1")
+    rc, calls, _ = _run(tmp_path, STUB_DONE="done")
     assert rc == 0
     assert "podTerminate" in calls
     assert not _trainer_ran(calls)
@@ -148,3 +149,10 @@ def test_terminate_retries_until_success(tmp_path):
     rc, calls, _ = _run(tmp_path, STUB_TERMINATE_FAILS="2")
     assert rc == 0
     assert calls.count("podTerminate") == 3
+
+
+def test_budget_stopped_run_is_extended(tmp_path):
+    rc, calls, _ = _run(tmp_path, STUB_DONE="budget")
+    assert rc == 0
+    assert any(" rm " in line and "DONE" in line for line in calls.splitlines())
+    assert _trainer_ran(calls)
