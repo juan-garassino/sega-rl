@@ -222,7 +222,7 @@ class HealthCallback(BaseCallback):
         self._last_rollout = (now, steps)
         loss = values.get("train/loss")
         finite = (loss is None or math.isfinite(loss)) and all(
-            _finite(v) for group in self.model.get_parameters().values() for v in group.values()
+            _finite(v) for v in self.model.get_parameters()["policy"].values()
         )
         rewards = [ep["r"] for ep in self.model.ep_info_buffer]
         entropy_loss = values.get("train/entropy_loss")

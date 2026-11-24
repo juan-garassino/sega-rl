@@ -17,9 +17,6 @@ from sega_rl.monitoring.video import write_mp4
 
 logger = logging.getLogger(__name__)
 
-EVAL_MAX_STEPS = 4500
-
-
 @dataclass
 class EvalResult:
     win_rate: float
@@ -30,8 +27,9 @@ class EvalResult:
 
 
 def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None,
-             max_steps: int = EVAL_MAX_STEPS) -> EvalResult:
+             max_steps: int | None = None) -> EvalResult:
     """Deterministic episodes in one env (the training process hosts no emulator, so this is allowed)."""
+    max_steps = max_steps or cfg.eval_max_steps
     venv = VecFrameStack(DummyVecEnv([make_single(cfg, rank=10_000)]), cfg.frame_stack, channels_order="last")
     raw_env = venv.venv.envs[0]
     rounds_won = rounds_done = levels_done = 0

@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     params_file: Path | None = None  # SEGARL_PARAMS_FILE=runs/x/best_params.json
     eval_freq: int = 250_000  # SEGARL_EVAL_FREQ=250000
     eval_episodes: int = 5  # SEGARL_EVAL_EPISODES=5
+    eval_max_steps: int = 4500  # SEGARL_EVAL_MAX_STEPS=4500 (agent steps per eval episode)
     ckpt_freq: int = 250_000  # SEGARL_CKPT_FREQ=250000
     keep_ckpts: int = 3  # SEGARL_KEEP_CKPTS=3
     runs_dir: Path = Path("runs")  # SEGARL_RUNS_DIR=/workspace/runs
