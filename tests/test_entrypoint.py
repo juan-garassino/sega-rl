@@ -13,6 +13,7 @@ echo "gsutil $*" >> "$CALLS"
 case "$*" in
   *stat*DONE*) [ "${STUB_DONE:-0}" = 1 ] && exit 0 || exit 1 ;;
   *cp*roms*) [ "${STUB_ROM_FAIL:-0}" = 1 ] && exit 1 || exit 0 ;;
+  *rm*roms*) exit 0 ;;
   *rsync*) [ "${STUB_RSYNC_FAIL:-0}" = 1 ] && exit 1 || exit 0 ;;
 esac
 exit 0
@@ -23,6 +24,10 @@ case "$*" in
   *costPerHr*) echo '{"data":{"pod":{"costPerHr":0.5}}}' ;;
   *) echo '{"data":{"podTerminate":null}}' ;;
 esac
+'''
+PYTHON = r'''#!/usr/bin/env bash
+echo "python $*" >> "$CALLS"
+exit 0
 '''
 SEGA_RL = r'''#!/usr/bin/env bash
 echo "sega-rl $* cost=${SEGARL_COST_PER_HR_USD:-}" >> "$CALLS"
@@ -37,7 +42,7 @@ def _trainer_ran(calls: str) -> bool:
 def _run(tmp_path: Path, **env_overrides) -> tuple[int, str, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    for name, body in {"gsutil": GSUTIL, "curl": CURL, "sega-rl": SEGA_RL}.items():
+    for name, body in {"gsutil": GSUTIL, "curl": CURL, "sega-rl": SEGA_RL, "python": PYTHON}.items():
         (bin_dir / name).write_text(body)
         (bin_dir / name).chmod(0o755)
     calls = tmp_path / "calls.log"
@@ -96,3 +101,14 @@ def test_local_run_without_pod_id_skips_terminate(tmp_path):
     rc, calls, _ = _run(tmp_path, RUNPOD_POD_ID="")
     assert rc == 0
     assert "podTerminate" not in calls
+
+
+def test_roms_deleted_from_gcs_after_pull(tmp_path):
+    rc, calls, _ = _run(tmp_path, SEGARL_GAME="sf")
+    assert rc == 0
+    lines = calls.splitlines()
+    cp = next(i for i, line in enumerate(lines) if " cp " in line and "roms" in line)
+    rm = next(i for i, line in enumerate(lines) if " rm " in line and "roms" in line)
+    imp = next(i for i, line in enumerate(lines) if "stable_retro.import" in line)
+    assert cp < imp < rm
+    assert _trainer_ran(calls)

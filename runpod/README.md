@@ -11,7 +11,8 @@ GitHub → Actions → **deploy-runpod** → inputs `game` (sf|sonic|airstriker)
 ## What the pod does (`entrypoint.sh`)
 
 1. Exits (and removes itself) if `gs://garassino-ml-artifacts/sega-rl/runs/<RUN_ID>/DONE` exists.
-2. Pulls ROMs from `gs://garassino-ml-artifacts/sega-rl/roms/` and imports them (not for airstriker).
+2. Pulls ROMs from `gs://garassino-ml-artifacts/sega-rl/roms/`, imports them, then **deletes them from GCS**
+   (ROMs are uploaded right before each launch by `make launch`; not used for airstriker).
    Failure → `health.json` CRITICAL `rom`, pod removed.
 3. Pulls the run dir (resume from the newest checkpoint).
 4. Reads its own USD/h (`pod_self.sh cost`) → `SEGARL_COST_PER_HR_USD`; training stops at

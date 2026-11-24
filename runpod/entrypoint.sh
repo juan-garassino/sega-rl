@@ -3,7 +3,7 @@
 #
 #   MODE=train|tune|eval|smoke   (default train)
 #
-# Lifecycle: GCS auth -> exit if the run is already DONE -> pull ROMs + import ->
+# Lifecycle: GCS auth -> exit if the run is already DONE -> pull ROMs + import + delete them from GCS ->
 # pull the run dir (resume) -> export pod cost -> periodic sync -> sega-rl $MODE ->
 # final sync -> terminate this pod. The EXIT trap guarantees the last two steps, so
 # billing stops whatever happens (finish, CRITICAL health, crash, stall exit code 3).
@@ -80,6 +80,8 @@ if [ "$GAME" != "airstriker" ]; then
         write_health CRITICAL rom
         exit 1
     fi
+    # ROMs are uploaded right before each launch and must not stay in GCS (Juan's rule).
+    gcs -m -q rm "${GCS_ROOT}/roms/*" || log "could not delete ROMs from GCS — remove them by hand"
 fi
 
 log "pulling run dir (resume)"
