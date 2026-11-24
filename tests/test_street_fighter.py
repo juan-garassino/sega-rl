@@ -76,3 +76,29 @@ def test_sf_rom_smoke():
         assert {"health", "enemy_health", "matches_won", "enemy_matches_won", "score", "continuetimer"} <= set(info)
     finally:
         env.close()
+
+
+def test_sf_discrete_action_set():
+    from sega_rl.envs.street_fighter import SF_ACTIONS
+
+    assert len(SF_ACTIONS) == 21
+    assert [] in SF_ACTIONS and ["UP"] in SF_ACTIONS and ["DOWN", "X"] in SF_ACTIONS
+    assert not any(b in ("START", "MODE") for combo in SF_ACTIONS for b in combo)
+    # UP only in the 3 jump actions (random play no longer jumps half the time)
+    assert sum("UP" in combo for combo in SF_ACTIONS) == 3
+
+
+def test_damage_weights():
+    fn = SFReward("shaped", dealt_weight=1.0, taken_weight=0.5)
+    r_dealt, _ = fn(_info(), _info(enemy_health=150))
+    r_taken, _ = fn(_info(), _info(health=126))
+    assert r_dealt == pytest.approx(26 / 176)
+    assert r_taken == pytest.approx(-0.5 * 50 / 176)
+
+
+def test_sf_defaults_discrete_and_lower_lr():
+    from sega_rl.config import Settings, default_learning_rate
+
+    assert Settings(game="sf").sf_actions == "discrete"
+    assert default_learning_rate("sf") == 1e-4
+    assert default_learning_rate("sonic") == 2.5e-4

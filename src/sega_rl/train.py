@@ -13,7 +13,7 @@ from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.logger import Logger, make_output_format
 from stable_baselines3.common.vec_env import VecEnv
 
-from sega_rl.config import Settings
+from sega_rl.config import Settings, default_learning_rate
 from sega_rl.envs.factory import make_vec_env
 from sega_rl.evaluate import EvalCallback
 from sega_rl.monitoring import mlflow_tracking
@@ -38,6 +38,7 @@ def _linear(start: float) -> Callable[[float], float]:
 
 def build_model(cfg: Settings, env: VecEnv) -> PPO:
     params = dict(PPO_DEFAULTS)
+    params["learning_rate"] = cfg.learning_rate or default_learning_rate(cfg.game)
     if cfg.params_file:
         params.update(json.loads(Path(cfg.params_file).read_text()))
     params["learning_rate"] = _linear(params["learning_rate"])

@@ -9,12 +9,25 @@ GAME_ID = "StreetFighterIISpecialChampionEdition-Genesis-v0"
 DEFAULT_STATE = "Champion.Level1.RyuVsGuile"
 MAX_HEALTH = 176
 
+# Genesis 6-button pad: X/Y/Z = light/medium/heavy punch, A/B/C = light/medium/heavy kick.
+# Independent MultiBinary buttons press UP half the time (the agent jumped constantly);
+# these 21 moves keep it on the ground unless it chooses to jump.
+SF_ACTIONS: list[list[str]] = [
+    [], ["LEFT"], ["RIGHT"], ["DOWN"], ["DOWN", "LEFT"], ["DOWN", "RIGHT"],
+    ["UP"], ["UP", "LEFT"], ["UP", "RIGHT"],
+    ["X"], ["Y"], ["Z"], ["A"], ["B"], ["C"],
+    ["DOWN", "X"], ["DOWN", "Y"], ["DOWN", "Z"], ["DOWN", "A"], ["DOWN", "B"], ["DOWN", "C"],
+]
+
 
 class SFReward:
-    """Shaped: (damage dealt - damage taken)/176, +1 round won, -1 round lost. Score: upstream score delta."""
+    """Shaped: (w_d·dealt − w_t·taken)/176, +1 round won, −1 round lost. Score: upstream score delta."""
 
-    def __init__(self, mode: Literal["shaped", "score"] = "shaped"):
+    def __init__(self, mode: Literal["shaped", "score"] = "shaped", dealt_weight: float = 1.0,
+                 taken_weight: float = 1.0):
         self.mode = mode
+        self.dealt_weight = dealt_weight
+        self.taken_weight = taken_weight
 
     def reset(self) -> None:
         pass
@@ -33,9 +46,12 @@ class SFReward:
         info["round_won"] = True if won else False if lost else None
         if self.mode == "score":
             return float(info["score"] - prev["score"]), False
-        return (dealt - taken) / MAX_HEALTH + (1.0 if won else 0.0) - (1.0 if lost else 0.0), False
+        shaped = (self.dealt_weight * dealt - self.taken_weight * taken) / MAX_HEALTH
+        return shaped + (1.0 if won else 0.0) - (1.0 if lost else 0.0), False
 
 
 def make(cfg: Settings) -> RetroEnv:
-    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SFReward(cfg.reward_mode), combos=None,
+    reward = SFReward(cfg.reward_mode, dealt_weight=cfg.sf_dealt_weight, taken_weight=cfg.sf_taken_weight)
+    combos = SF_ACTIONS if cfg.sf_actions == "discrete" else None
+    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos,
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max)
