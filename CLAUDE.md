@@ -23,7 +23,7 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | `status.py` | `sega-rl status <run>` (live state) and `sega-rl videos <run>` (download eval replays) via MLflow |
 | `cli.py` | `sega-rl train|tune|eval|smoke|status|check-rom|import-roms` |
 
-`runpod/`: `Dockerfile` (CUDA 12.8 devel, uv, torch 2.14.1 cu126 swapped in, import check), `entrypoint.sh`
+`runpod/`: `Dockerfile.cpu` (slim, CPU torch from the lock — CPU pods, `:cpu` tag), `Dockerfile` (CUDA 12.8, torch 2.14.1 cu126 — GPU pods, `:latest`), `entrypoint.sh`
 (lifecycle, see runpod/README.md), `scripts/pod_self.sh` (cost / self-terminate with retries).
 `.github/workflows/`: `ci.yml`, `build-push.yml` (GHCR), `deploy-runpod.yml` (WIF token + pod create).
 

@@ -1,0 +1,30 @@
+# Slim CPU image for CPU pods (default): no CUDA layers, CPU torch straight from uv.lock.
+# ~1.5 GB instead of ~9 GB, so pods start in a couple of minutes instead of 15+. Built by CI only.
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg tini \
+    && echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+        > /etc/apt/sources.list.d/google-cloud-sdk.list \
+    && curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg \
+    && apt-get update && apt-get install -y --no-install-recommends google-cloud-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 10001 -s /bin/bash researcher \
+    && mkdir -p /app /workspace && chown -R researcher:researcher /app /workspace
+USER researcher
+ENV PATH="/home/researcher/.local/bin:/app/.venv/bin:$PATH" UV_PYTHON_PREFERENCE=only-system
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+WORKDIR /app
+COPY --chown=researcher:researcher pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-install-project --no-dev
+COPY --chown=researcher:researcher src ./src
+COPY --chown=researcher:researcher runpod ./runpod
+RUN uv sync --frozen --no-dev \
+    && chmod +x runpod/entrypoint.sh runpod/scripts/*.sh \
+    && python -c "import torch, stable_retro, sega_rl.train; print('torch', torch.__version__)"
+
+ENV WORKSPACE_DIR=/workspace APP_DIR=/app MODE=train
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/runpod/entrypoint.sh"]
