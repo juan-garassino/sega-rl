@@ -21,17 +21,18 @@ SYNC_ENABLED=0
 log() { echo "=== $* ==="; }
 
 gcs() {
+    # gcloud storage, not gsutil: gsutil ignores CLOUDSDK_AUTH_ACCESS_TOKEN and calls GCS anonymously.
     local token_file="${WORKSPACE_DIR}/control/gcs_token"
     if [ -s "$token_file" ]; then
-        CLOUDSDK_AUTH_ACCESS_TOKEN="$(cat "$token_file")" timeout "$GCS_TIMEOUT" gsutil "$@"
+        CLOUDSDK_AUTH_ACCESS_TOKEN="$(cat "$token_file")" timeout "$GCS_TIMEOUT" gcloud storage "$@"
     else
-        timeout "$GCS_TIMEOUT" gsutil "$@"
+        timeout "$GCS_TIMEOUT" gcloud storage "$@"
     fi
 }
 
 sync_up() {
     [ "$SYNC_ENABLED" = 1 ] || return 0
-    gcs -m -q rsync -r "$RUN_DIR" "${GCS_ROOT}/runs/${RUN_ID}" || log "sync to GCS failed (token expired? MLflow has the artifacts)"
+    gcs rsync --recursive "$RUN_DIR" "${GCS_ROOT}/runs/${RUN_ID}" || log "sync to GCS failed (token expired? MLflow has the artifacts)"
 }
 
 finish() {
@@ -39,6 +40,8 @@ finish() {
     trap - EXIT
     [ -n "$SYNC_PID" ] && kill "$SYNC_PID" 2>/dev/null
     log "final sync (exit code $rc)"
+    # On failure, keep the pod a few seconds so its logs can still be read (runpodctl pod logs).
+    [ "$rc" != 0 ] && sleep "${FAIL_LINGER:-30}"
     sync_up
     bash "$POD_SELF" remove || log "POD SELF-TERMINATION FAILED — remove it in the RunPod console"
     exit "$rc"
@@ -70,7 +73,7 @@ DONE_STATUS="$(gcs cat "${GCS_ROOT}/runs/${RUN_ID}/DONE" 2>/dev/null || true)"
 if [ "$DONE_STATUS" = budget ]; then
     # Probe-then-extend: a run stopped by its budget cap resumes from its last checkpoint.
     log "extending run ${RUN_ID} (stopped on budget)"
-    gcs -q rm "${GCS_ROOT}/runs/${RUN_ID}/DONE" || true
+    gcs rm "${GCS_ROOT}/runs/${RUN_ID}/DONE" || true
 elif [ -n "$DONE_STATUS" ]; then
     log "run ${RUN_ID} already finished (${DONE_STATUS}), nothing to do"
     exit 0
@@ -80,9 +83,9 @@ SYNC_ENABLED=1
 if [ "$GAME" != "airstriker" ]; then
     log "pulling ROMs"
     pulled=0
-    gcs -m -q cp "${GCS_ROOT}/roms/*" "${WORKSPACE_DIR}/roms/" && pulled=1
+    gcs cp "${GCS_ROOT}/roms/*" "${WORKSPACE_DIR}/roms/" && pulled=1
     # ROMs are uploaded right before each launch and must never stay in GCS (Juan's rule).
-    gcs -m -q rm "${GCS_ROOT}/roms/*" || log "could not delete ROMs from GCS — remove them by hand"
+    gcs rm "${GCS_ROOT}/roms/*" || log "could not delete ROMs from GCS — remove them by hand"
     if [ "$pulled" != 1 ] || ! python -m stable_retro.import "${WORKSPACE_DIR}/roms" || ! sega-rl check-rom; then
         log "ROM missing, wrong dump, or import failed"
         write_health CRITICAL rom
@@ -91,7 +94,7 @@ if [ "$GAME" != "airstriker" ]; then
 fi
 
 log "pulling run dir (resume)"
-gcs -m -q rsync -r "${GCS_ROOT}/runs/${RUN_ID}" "$RUN_DIR" 2>/dev/null || log "no prior state, fresh run"
+gcs rsync --recursive "${GCS_ROOT}/runs/${RUN_ID}" "$RUN_DIR" 2>/dev/null || log "no prior state, fresh run"
 rm -f "${RUN_DIR}/DONE"
 
 SEGARL_COST_PER_HR_USD="$(bash "$POD_SELF" cost)"
