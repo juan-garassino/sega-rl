@@ -1,0 +1,7 @@
+roms/
+runs/
+.venv/
+.git/
+.superpowers/
+*.md
+!README.md
