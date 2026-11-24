@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths: ['src/**', 'runpod/**', 'pyproject.toml', 'uv.lock', '.github/workflows/build-push.yml']
+  pull_request:
+    paths: ['runpod/**', 'pyproject.toml', 'uv.lock', '.github/workflows/build-push.yml']
   workflow_dispatch:
 
 concurrency:
@@ -33,7 +35,7 @@ jobs:
         with:
           context: .
           file: runpod/Dockerfile
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}  # PRs only prove the image builds
           tags: |
             ghcr.io/juan-garassino/sega-rl:latest
             ghcr.io/juan-garassino/sega-rl:${{ github.sha }}
