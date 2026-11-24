@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
+import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback, CallbackList
 from stable_baselines3.common.logger import Logger, make_output_format
@@ -26,6 +27,11 @@ PPO_DEFAULTS = dict(n_steps=128, batch_size=256, n_epochs=4, learning_rate=2.5e-
 ENV_CRASH_ERRORS = (EOFError, BrokenPipeError, ConnectionResetError)
 
 
+def torch_threads(cpu_count: int, n_envs: int) -> int:
+    """CPU pods: leave one core per emulator process, give torch the rest (at least 2)."""
+    return max(2, cpu_count - n_envs)
+
+
 def _linear(start: float) -> Callable[[float], float]:
     return lambda progress_remaining: start * progress_remaining
 
@@ -35,6 +41,8 @@ def build_model(cfg: Settings, env: VecEnv) -> PPO:
     if cfg.params_file:
         params.update(json.loads(Path(cfg.params_file).read_text()))
     params["learning_rate"] = _linear(params["learning_rate"])
+    if not torch.cuda.is_available():
+        torch.set_num_threads(torch_threads(os.cpu_count() or 2, cfg.n_envs))
     return PPO("CnnPolicy", env, seed=cfg.seed, verbose=0, **params)
 
 
