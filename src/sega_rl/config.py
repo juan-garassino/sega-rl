@@ -11,6 +11,7 @@ Game = Literal["sf", "sonic", "airstriker"]
 
 _TOTAL_STEPS = {"airstriker": 1_000_000, "sf": 10_000_000, "sonic": 10_000_000}
 _MAX_EUR = {"airstriker": 1.0, "sf": 8.0, "sonic": 7.0}
+_LEARNING_RATE = {"airstriker": 2.5e-4, "sf": 1e-4, "sonic": 2.5e-4}  # sf: clip_fraction ran high at 2.5e-4
 
 
 def default_total_steps(game: str) -> int:
@@ -19,6 +20,10 @@ def default_total_steps(game: str) -> int:
 
 def default_max_eur(game: str) -> float:
     return _MAX_EUR[game]
+
+
+def default_learning_rate(game: str) -> float:
+    return _LEARNING_RATE[game]
 
 
 def _utc_run_id() -> str:
@@ -35,6 +40,10 @@ class Settings(BaseSettings):
     n_envs: int = 16  # SEGARL_N_ENVS=16
     obs_mode: Literal["frame", "delta"] = "frame"  # SEGARL_OBS_MODE=delta
     reward_mode: Literal["shaped", "score"] = "shaped"  # SEGARL_REWARD_MODE=score
+    sf_actions: Literal["discrete", "multibinary"] = "discrete"  # SEGARL_SF_ACTIONS=multibinary (upstream)
+    sf_dealt_weight: float = 1.0  # SEGARL_SF_DEALT_WEIGHT=1.0
+    sf_taken_weight: float = 0.5  # SEGARL_SF_TAKEN_WEIGHT=0.5 (<1 favours engaging over fleeing)
+    learning_rate: float | None = None  # SEGARL_LEARNING_RATE=1e-4 (None = per-game default)
     frame_skip: int = 4  # SEGARL_FRAME_SKIP=4
     frame_stack: int = 4  # SEGARL_FRAME_STACK=4
     noop_max: int = 30  # SEGARL_NOOP_MAX=30 (random no-op frames at reset; 0 = always the same start)
