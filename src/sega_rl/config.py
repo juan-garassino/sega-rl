@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     max_hours: float = 6.0  # SEGARL_MAX_HOURS=6
     max_eur: float | None = None  # SEGARL_MAX_EUR=8 (None = per-game default)
     usd_per_eur: float = 1.05  # SEGARL_USD_PER_EUR=1.05
+    cost_per_hr_usd: float | None = None  # SEGARL_COST_PER_HR_USD=0.44 (set by the RunPod entrypoint)
 
     kl_warn: float = 0.05  # SEGARL_KL_WARN=0.05
     kl_crit: float = 0.2  # SEGARL_KL_CRIT=0.2
@@ -68,6 +69,13 @@ class Settings(BaseSettings):
     @property
     def budget_eur(self) -> float:
         return self.max_eur if self.max_eur is not None else default_max_eur(self.game)
+
+    @property
+    def hours_budget(self) -> float:
+        """Wall-clock cap: max_hours, tightened by the EUR cap when the pod's hourly cost is known."""
+        if not self.cost_per_hr_usd:
+            return self.max_hours
+        return min(self.max_hours, self.budget_eur * self.usd_per_eur / self.cost_per_hr_usd)
 
     @property
     def run_dir(self) -> Path:

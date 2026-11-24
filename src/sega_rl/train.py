@@ -99,7 +99,7 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
     ckpt_dir = run_dir / "checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.json").write_text(cfg.model_dump_json(indent=2))
-    deadline = time.time() + cfg.max_hours * 3600
+    deadline = time.time() + cfg.hours_budget * 3600
 
     env = env_factory(cfg)
     resume_from = _latest_checkpoint(ckpt_dir)

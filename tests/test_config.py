@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from sega_rl.config import Settings, default_max_eur, default_total_steps
 
 
@@ -43,3 +45,15 @@ def test_import_stable_retro():
     import stable_retro
 
     assert "Airstriker-Genesis-v0" in stable_retro.data.list_games()
+
+
+def test_budget_from_cost(monkeypatch):
+    monkeypatch.setenv("SEGARL_GAME", "sf")  # 8 EUR cap
+    monkeypatch.setenv("SEGARL_COST_PER_HR_USD", "0.5")
+    assert Settings().hours_budget == 6.0  # 8 EUR buys 16.8 h > 6 h cap
+    monkeypatch.setenv("SEGARL_COST_PER_HR_USD", "3.0")
+    assert Settings().hours_budget == pytest.approx(8 * 1.05 / 3.0)
+
+
+def test_budget_without_cost_uses_max_hours():
+    assert Settings(max_hours=2.0).hours_budget == 2.0
