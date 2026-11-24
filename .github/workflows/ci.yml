@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra dev
+      # ROM tests skip themselves: CI never has ROMs.
+      - run: uv run pytest -q
+
+  smoke-import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync
+      - run: >
+          uv run python -c "import sega_rl.cli, sega_rl.train, sega_rl.evaluate,
+          sega_rl.monitoring.health, sega_rl.monitoring.mlflow_tracking, sega_rl.envs.factory"
+      - run: bash -n runpod/entrypoint.sh && bash -n runpod/scripts/pod_self.sh
+
+  mlflow-auth:
+    # Proves the MLflow secrets work (401 = wrong/empty credentials) before any paid pod relies on them.
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          U: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          P: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+        run: |
+          [ -n "$U" ] && [ -n "$P" ] || { echo "::error::MLflow secrets are empty"; exit 1; }
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 -u "$U:$P" \
+            "https://garassino-mlflow-920423386248.europe-west1.run.app/api/2.0/mlflow/experiments/search?max_results=1")
+          echo "MLflow API answered HTTP $CODE"
+          [ "$CODE" = 200 ] || { echo "::error::MLflow auth failed (HTTP $CODE)"; exit 1; }
