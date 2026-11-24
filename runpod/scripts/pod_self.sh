@@ -15,7 +15,7 @@ if [ -z "$POD_ID" ] || [ -z "$API_KEY" ]; then
 fi
 
 gql() {
-    curl -s -X POST "https://api.runpod.io/graphql?api_key=${API_KEY}" \
+    curl -s -X POST https://api.runpod.io/graphql -H "Authorization: Bearer ${API_KEY}" \
         -H "Content-Type: application/json" -d "$1"
 }
 

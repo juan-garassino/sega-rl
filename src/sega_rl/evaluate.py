@@ -13,6 +13,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecFrameStack
 
 from sega_rl.config import Settings
 from sega_rl.envs.factory import make_single
+from sega_rl.monitoring import mlflow_tracking
 from sega_rl.monitoring.video import write_mp4
 
 logger = logging.getLogger(__name__)
@@ -103,6 +104,8 @@ class EvalCallback(BaseCallback):
         self.next_eval = (steps // self.cfg.eval_freq + 1) * self.cfg.eval_freq
         video = self.run_dir / "videos" / f"eval_{steps:010d}.mp4"
         result = self.eval_fn(self.model, self.cfg, self.cfg.eval_episodes, video_path=video)
+        if video.exists():
+            mlflow_tracking.log_artifact(video, "videos")
         for k, v in asdict(result).items():
             if not math.isnan(v):
                 self.logger.record(f"eval/{k}", v)
@@ -112,4 +115,5 @@ class EvalCallback(BaseCallback):
             self.best = key
             self.model.save(self.run_dir / "best_model.zip")
             (self.run_dir / "best.json").write_text(json.dumps({"step": steps, **asdict(result)}, default=float))
+            mlflow_tracking.log_artifact(self.run_dir / "best.json")
         return True

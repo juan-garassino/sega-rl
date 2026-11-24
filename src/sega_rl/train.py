@@ -80,6 +80,28 @@ class BudgetCallback(BaseCallback):
         return not self.hit
 
 
+class HealthReporter:
+    """Mirrors health into MLflow: tags on every status change, health.json at most every upload_every_s."""
+
+    def __init__(self, health_json: Path, upload_every_s: float = 600.0, clock: Callable[[], float] = time.time):
+        self.health_json = health_json
+        self.upload_every_s = upload_every_s
+        self.clock = clock
+        self.last_key: tuple | None = None
+        self.last_upload: float | None = None
+
+    def __call__(self, report) -> None:
+        key = (report.status, tuple(report.reasons))
+        if key != self.last_key:
+            mlflow_tracking.set_tag("health_status", report.status)
+            mlflow_tracking.set_tag("health_reasons", ",".join(report.reasons))
+            self.last_key = key
+        now = self.clock()
+        if self.last_upload is None or now - self.last_upload >= self.upload_every_s:
+            mlflow_tracking.log_artifact(self.health_json)
+            self.last_upload = now
+
+
 def _latest_checkpoint(ckpt_dir: Path) -> Path | None:
     ckpts = sorted(ckpt_dir.glob("ckpt_*.zip"))
     return ckpts[-1] if ckpts else None
@@ -116,6 +138,7 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         run_dir / "health.json",
         on_critical=lambda r: logger.error("CRITICAL training health: %s", r.reasons),
         stall_secs=cfg.fps_zero_secs,
+        on_report=HealthReporter(run_dir / "health.json"),
     )
     keeper = CheckpointKeeper(cfg, ckpt_dir)
     budget = BudgetCallback(deadline)
@@ -137,16 +160,17 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         status = "critical"
     finally:
         keeper.model = model
-        keeper.save()
+        final_ckpt = keeper.save()
         try:
             env.close()
         except Exception:
             logger.exception("env.close failed")
 
     (run_dir / "DONE").write_text(status)
-    for artifact in ("health.json", "best.json"):
+    for artifact in ("health.json", "best.json", "best_model.zip", "DONE"):
         if (run_dir / artifact).exists():
             mlflow_tracking.log_artifact(run_dir / artifact)
+    mlflow_tracking.log_artifact(final_ckpt, "checkpoints")
     mlflow_tracking.end(status)
     logger.info("run %s finished: %s at %d steps", cfg.run_id, status, model.num_timesteps)
     return status

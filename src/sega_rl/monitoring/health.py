@@ -163,6 +163,7 @@ class HealthCallback(BaseCallback):
         on_critical: Callable[[HealthReport], None],
         stall_secs: float | None = 300.0,
         on_stall: Callable[[HealthReport], None] = _exit_on_stall,
+        on_report: Callable[[HealthReport], None] | None = None,
     ):
         super().__init__()
         self.monitor = monitor
@@ -170,6 +171,7 @@ class HealthCallback(BaseCallback):
         self.on_critical = on_critical
         self.stall_secs = stall_secs
         self.on_stall = on_stall
+        self.on_report = on_report
         self._stop = False
         self._buttons_sum: np.ndarray | None = None
         self._buttons_n = 0
@@ -243,6 +245,8 @@ class HealthCallback(BaseCallback):
         )
         report = self.monitor.update(snap)
         self.write(report)
+        if self.on_report is not None:
+            self.on_report(report)
         self.logger.record("health/status", _RANK[report.status])
         if report.status != "HEALTHY":
             logger.warning("health %s: %s", report.status, ", ".join(report.reasons))

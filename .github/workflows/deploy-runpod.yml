@@ -1,0 +1,141 @@
+name: deploy-runpod
+
+# Creates one RunPod pod running ghcr.io/juan-garassino/sega-rl:latest.
+# GCS is used only at startup (1 h token: ROMs, resume); live metrics, health, videos and models go to MLflow.
+# ROMs must already be in gs://garassino-ml-artifacts/sega-rl/roms/ (`make launch` uploads them);
+# the pod deletes them after pulling, syncs to GCS, and terminates itself at the end.
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: 'Game'
+        required: true
+        type: choice
+        default: sf
+        options: [sf, sonic, airstriker]
+      mode:
+        description: 'Mode'
+        required: true
+        type: choice
+        default: train
+        options: [train, tune, smoke]
+      run_id:
+        description: 'Run ID (default: <game>-<timestamp>)'
+        required: false
+        default: ''
+      total_steps:
+        description: 'Total timesteps (empty = per-game default)'
+        required: false
+        default: ''
+      n_envs:
+        description: 'Parallel games (≈ vCPUs)'
+        required: true
+        default: '16'
+      max_hours:
+        description: 'Hard wall-clock cap (hours)'
+        required: true
+        default: '6'
+      max_eur:
+        description: 'Spend cap in EUR (empty = per-game default: sf 8, sonic 7)'
+        required: false
+        default: ''
+      gpu_type:
+        description: 'GPU (training is CPU-bound; cheapest is fine)'
+        required: true
+        type: choice
+        default: 'NVIDIA RTX A4000'
+        options: ['NVIDIA RTX A4000', 'NVIDIA RTX A5000', 'NVIDIA GeForce RTX 3090', 'NVIDIA RTX 4000 Ada Generation']
+      cloud_type:
+        description: 'RunPod cloud'
+        required: true
+        type: choice
+        default: COMMUNITY
+        options: [COMMUNITY, SECURE]
+      min_vcpu:
+        description: 'Minimum vCPUs'
+        required: true
+        default: '16'
+
+concurrency:
+  group: deploy-runpod
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve RUN_ID
+        id: runid
+        run: |
+          if [ -z "${{ inputs.run_id }}" ]; then
+            echo "value=${{ inputs.game }}-$(date -u +%Y%m%d-%H%M%S)" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ inputs.run_id }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to GCP via WIF
+        id: gcp_auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_RUNTIME_SA }}
+          token_format: access_token
+          access_token_lifetime: 3600s
+
+      - name: Create pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          GCS_ACCESS_TOKEN: ${{ steps.gcp_auth.outputs.access_token }}
+          MLFLOW_USER: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_PASS: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          RUN_ID: ${{ steps.runid.outputs.value }}
+        run: |
+          set -euo pipefail
+          ENV_JSON=$(jq -nc \
+            --arg mode "${{ inputs.mode }}" --arg game "${{ inputs.game }}" --arg run_id "$RUN_ID" \
+            --arg steps "${{ inputs.total_steps }}" --arg n_envs "${{ inputs.n_envs }}" \
+            --arg max_hours "${{ inputs.max_hours }}" --arg max_eur "${{ inputs.max_eur }}" \
+            --arg token "$GCS_ACCESS_TOKEN" --arg api_key "$RUNPOD_API_KEY" \
+            --arg ml_user "$MLFLOW_USER" --arg ml_pass "$MLFLOW_PASS" \
+            '[
+              {key:"MODE", value:$mode}, {key:"SEGARL_GAME", value:$game}, {key:"RUN_ID", value:$run_id},
+              {key:"SEGARL_N_ENVS", value:$n_envs}, {key:"SEGARL_MAX_HOURS", value:$max_hours},
+              {key:"GCS_BUCKET", value:"garassino-ml-artifacts"}, {key:"GCS_ACCESS_TOKEN", value:$token},
+              {key:"SEGARL_RUNPOD_API_KEY", value:$api_key},
+              {key:"MLFLOW_TRACKING_URI", value:"https://garassino-mlflow-920423386248.europe-west1.run.app"},
+              {key:"MLFLOW_TRACKING_USERNAME", value:$ml_user}, {key:"MLFLOW_TRACKING_PASSWORD", value:$ml_pass}
+            ]
+            + (if $steps == "" then [] else [{key:"SEGARL_TOTAL_STEPS", value:$steps}] end)
+            + (if $max_eur == "" then [] else [{key:"SEGARL_MAX_EUR", value:$max_eur}] end)')
+
+          QUERY=$(jq -nc \
+            --arg name "sega-rl-$RUN_ID" --arg gpu "${{ inputs.gpu_type }}" --arg cloud "${{ inputs.cloud_type }}" \
+            --argjson vcpu "${{ inputs.min_vcpu }}" --argjson env "$ENV_JSON" \
+            '{
+              query: "mutation Deploy($input: PodFindAndDeployOnDemandInput!) { podFindAndDeployOnDemand(input: $input) { id costPerHr machineId } }",
+              variables: { input: {
+                cloudType: $cloud, gpuCount: 1, gpuTypeId: $gpu,
+                minVcpuCount: $vcpu, minMemoryInGb: 32,
+                containerDiskInGb: 40, volumeInGb: 0,
+                name: $name, imageName: "ghcr.io/juan-garassino/sega-rl:latest",
+                dockerArgs: "", ports: "", env: $env
+              } }
+            }')
+
+          RESP=$(curl -s -X POST https://api.runpod.io/graphql \
+            -H "Content-Type: application/json" -H "Authorization: Bearer $RUNPOD_API_KEY" -d "$QUERY")
+          echo "$RESP" | jq -e '.data.podFindAndDeployOnDemand.id' > /dev/null || {
+            echo "::error::Pod deploy failed"; echo "$RESP" | jq 'del(.data)'; exit 1; }
+          POD_ID=$(echo "$RESP" | jq -r '.data.podFindAndDeployOnDemand.id')
+          COST=$(echo "$RESP" | jq -r '.data.podFindAndDeployOnDemand.costPerHr')
+          {
+            echo "## sega-rl pod"
+            echo "- **Pod:** \`$POD_ID\` — **\$$COST/h**"
+            echo "- **Run:** \`$RUN_ID\` (game ${{ inputs.game }}, mode ${{ inputs.mode }})"
+            echo "- Health: \`make health RUN_ID=$RUN_ID\`"
+          } >> "$GITHUB_STEP_SUMMARY"

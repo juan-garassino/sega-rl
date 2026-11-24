@@ -32,6 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--episodes", type=int, default=5)
     ev.add_argument("--video", type=Path)
     sub.add_parser("smoke", help="2-env Airstriker run, ~2k steps, in a temp dir")
+    st = sub.add_parser("status", help="live run state from MLflow (health, eval, fps)")
+    st.add_argument("run_name", help="run id = MLflow run name, e.g. sf-20261124-180000")
     imp = sub.add_parser("import-roms", help="import ROMs into stable-retro")
     imp.add_argument("--dir", type=Path, default=Path("roms"))
     return p
@@ -78,6 +80,13 @@ def _cmd_smoke(args: argparse.Namespace) -> int:
     return 0 if status == "done" else 2
 
 
+def _cmd_status(args: argparse.Namespace) -> int:
+    from sega_rl.status import fetch
+
+    print(fetch(args.run_name))
+    return 0
+
+
 def _cmd_import_roms(args: argparse.Namespace) -> int:
     return subprocess.call([sys.executable, "-m", "stable_retro.import", str(args.dir)])
 
@@ -85,6 +94,6 @@ def _cmd_import_roms(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
-    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke,
+    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke, "status": _cmd_status,
                 "import-roms": _cmd_import_roms}
     return handlers[args.cmd](args)

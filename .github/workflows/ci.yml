@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync --extra dev
+      # ROM tests skip themselves: CI never has ROMs.
+      - run: uv run pytest -q
+
+  smoke-import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - run: uv sync
+      - run: >
+          uv run python -c "import sega_rl.cli, sega_rl.train, sega_rl.evaluate,
+          sega_rl.monitoring.health, sega_rl.monitoring.mlflow_tracking, sega_rl.envs.factory"
+      - run: bash -n runpod/entrypoint.sh && bash -n runpod/scripts/pod_self.sh && bash -n runpod/scripts/token_writer.sh
