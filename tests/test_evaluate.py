@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+import math
+import sys
+
+import numpy as np
+
+from sega_rl.config import Settings
+from sega_rl.evaluate import EvalCallback, EvalResult, run_eval
+from sega_rl.monitoring import mlflow_tracking
+
+
+class _Logger:
+    def __init__(self):
+        self.records = {}
+
+    def record(self, key, value, exclude=None):
+        self.records[key] = value
+
+
+class _RandomModel:
+    def __init__(self, action_space):
+        self.logger = _Logger()
+        self.action_space = action_space
+        self.saved = []
+        self.num_timesteps = 0
+
+    def predict(self, obs, deterministic=True):
+        return np.array([self.action_space.sample() for _ in range(len(obs))]), None
+
+    def save(self, path):
+        self.saved.append(str(path))
+        open(path, "w").close()
+
+    def get_env(self):
+        return None
+
+
+def test_eval_airstriker_returns_result(tmp_path):
+    from gymnasium.spaces import MultiBinary
+
+    video = tmp_path / "v.mp4"
+    result = run_eval(_RandomModel(MultiBinary(12)), Settings(game="airstriker"), episodes=1,
+                      video_path=video, max_steps=200)
+    assert isinstance(result, EvalResult)
+    assert math.isnan(result.win_rate)
+    assert isinstance(result.mean_return, float)
+    assert video.exists() and video.stat().st_size > 0
+
+
+def test_mlflow_disabled_noop(monkeypatch):
+    monkeypatch.setitem(sys.modules, "mlflow", None)  # any import attempt would raise
+    assert mlflow_tracking.enabled() is False
+    mlflow_tracking.start(Settings())
+    mlflow_tracking.log_metrics({"a": 1.0}, step=1)
+    mlflow_tracking.end("done")
+
+
+def test_best_model_selection(tmp_path):
+    from gymnasium.spaces import MultiBinary
+
+    results = iter([
+        EvalResult(win_rate=0.2, mean_damage_dealt=50, mean_damage_taken=60, mean_return=0.0),
+        EvalResult(win_rate=0.1, mean_damage_dealt=90, mean_damage_taken=10, mean_return=0.0),
+        EvalResult(win_rate=0.4, mean_damage_dealt=40, mean_damage_taken=80, mean_return=0.0),
+    ])
+    cfg = Settings(game="sf", eval_freq=100)
+    cb = EvalCallback(cfg, tmp_path, eval_fn=lambda *a, **k: next(results))
+    model = _RandomModel(MultiBinary(12))
+    cb.init_callback(model)
+    for steps in (100, 200, 300):
+        model.num_timesteps = steps
+        cb.on_step()
+    assert len(model.saved) == 2
+    assert (tmp_path / "best.json").exists()
