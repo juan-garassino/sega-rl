@@ -14,10 +14,12 @@ import imageio.v2 as imageio
 import numpy as np
 
 from sega_rl.config import Settings
+from sega_rl.monitoring.video import write_mp4
 
 logger = logging.getLogger(__name__)
 FULL = 176
 SETTLE_FRAMES = 30  # both bars full this long = a round has really started
+RECORD_EVERY = 60  # one frame per game second
 MASH = ("A", "B", "C", "X", "Y", "Z")  # never START: it pauses the fight
 
 
@@ -27,7 +29,8 @@ class Fight:
     frame: np.ndarray
 
 
-def climb(game, max_fights: int = 12, max_frames: int = 120_000, seed: int = 0) -> list[Fight]:
+def climb(game, max_fights: int = 12, max_frames: int = 120_000, seed: int = 0,
+          frames: list | None = None) -> list[Fight]:
     rng = np.random.default_rng(seed)
     mash = [game.buttons.index(b) for b in MASH if b in game.buttons]
     move = [game.buttons.index(b) for b in ("LEFT", "RIGHT", "RIGHT", "DOWN") if b in game.buttons]
@@ -42,6 +45,8 @@ def climb(game, max_fights: int = 12, max_frames: int = 120_000, seed: int = 0) 
         if waiting:
             buttons[:] = 0 if settled else buttons  # a fight that just started: save it untouched
         frame, _, _, _, info = game.step(buttons)
+        if frames is not None and i % RECORD_EVERY == 0:
+            frames.append(np.array(frame))
         full = info["health"] == FULL and info["enemy_health"] == FULL
         if waiting:
             settled = settled + 1 if full and info["matches_won"] == 0 else 0
@@ -53,8 +58,8 @@ def climb(game, max_fights: int = 12, max_frames: int = 120_000, seed: int = 0) 
                 waiting, settled = False, 0
         elif info["matches_won"] >= 2:
             waiting = True
-        elif info["health"] > 0 and info["enemy_health"] > 1:
-            game.set_value("health", FULL)
+        elif info["health"] > 0 and info["enemy_health"] > 0:
+            game.set_value("health", FULL)  # every frame: he can be hit while the opponent is at 1
             game.set_value("enemy_health", 1)
     return fights
 
@@ -78,10 +83,12 @@ def run(cfg: Settings) -> int:
     game = _make_retro(GAME_ID, DEFAULT_STATE)
     try:
         game.reset()
-        fights = climb(game)
+        frames: list = []
+        fights = climb(game, frames=frames)
     finally:
         game.close()
     paths = save_states(fights, cfg.run_dir / "states")
+    write_mp4(frames, cfg.run_dir / "ladder.mp4")
     (cfg.run_dir / "DONE").write_text("done")
     print(f"{len(paths)} fight(s) saved")
     return 0 if paths else 1
