@@ -5,7 +5,7 @@ import gzip
 
 import numpy as np
 
-from sega_rl.ladder import FULL, climb, save_states
+from sega_rl.ladder import FULL, SETTLE_FRAMES, climb, save_states
 
 
 class _Em:
@@ -50,6 +50,29 @@ def test_climb_saves_one_state_per_fight():
     fights = climb(_Fight(), max_fights=3, max_frames=5000)
     assert [f.state for f in fights] == [b"fight-0", b"fight-1", b"fight-2"]
     assert [int(f.frame[0, 0, 0]) for f in fights] == [0, 1, 2]
+
+
+def test_climb_records_what_it_saw():
+    frames = []
+    climb(_Fight(), max_fights=2, max_frames=5000, frames=frames)
+    assert len(frames) >= 2
+
+
+def test_ryu_is_kept_at_full_health_even_once_the_opponent_is_at_one():
+    class _Losing(_Fight):
+        """Nobody ever falls, but once the fight has started Ryu loses 5 a frame."""
+
+        steps = 0
+
+        def step(self, action):
+            self.steps += 1
+            if self.steps > SETTLE_FRAMES:
+                self.health["health"] -= 5
+            return np.zeros((8, 8, 3), np.uint8), 0.0, False, False, {**self.health, "matches_won": 0}
+
+    game = _Losing()
+    climb(game, max_fights=2, max_frames=400)
+    assert game.health["health"] == FULL and game.health["enemy_health"] == 1
 
 
 def test_climb_gives_up_at_the_frame_limit():
