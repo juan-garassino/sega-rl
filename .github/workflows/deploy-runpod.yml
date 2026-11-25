@@ -19,7 +19,7 @@ on:
         required: true
         type: choice
         default: train
-        options: [train, smoke, bench, ladder]
+        options: [train, smoke, bench, ladder, compare]
       run_id:
         description: 'Run ID (default: <game>-<timestamp>)'
         required: false

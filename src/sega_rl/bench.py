@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from dataclasses import asdict
 from pathlib import Path
 from typing import Callable
 
@@ -100,6 +101,25 @@ def try_moves(env: RetroEnv, moves: list[str], names: list[str], repeats: int = 
             row[where] = damage / repeats
         out[name] = row
         logger.info("%s: %s", name, row)
+    return out
+
+
+def compare_play(cfg: Settings, load: Callable | None = None, play: Callable | None = None,
+                 episodes: int = 20) -> dict[str, dict]:
+    """Win rate of the run's newest checkpoint playing its likeliest move vs sampling (how it trains)."""
+    from stable_baselines3 import PPO
+
+    from sega_rl.evaluate import run_eval
+
+    ckpt = sorted((cfg.run_dir / "checkpoints").glob("ckpt_*.zip"))[-1]
+    model = (load or PPO.load)(ckpt)
+    out: dict[str, dict] = {}
+    for name, deterministic in (("likeliest", True), ("sampled", False)):
+        result = (play or run_eval)(model, cfg, episodes, deterministic=deterministic,
+                                    video_path=cfg.run_dir / "videos" / f"compare_{name}.mp4")
+        out[name] = {"checkpoint": ckpt.name, **asdict(result)}
+        logger.info("%s: %s", name, out[name])
+        (cfg.run_dir / "compare.json").write_text(json.dumps(out, indent=2, default=float))
     return out
 
 
