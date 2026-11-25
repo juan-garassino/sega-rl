@@ -138,3 +138,23 @@ def test_long_runs_hold_a_direction_for_a_second():
         env.step(i)
         held = [c for c in stub.calls if c[BUTTONS.index("LEFT")] or c[BUTTONS.index("RIGHT")]]
         assert len(stub.calls) >= 60 and len(held) == len(stub.calls)
+
+
+def test_new_places_pay_in_any_direction_once_and_standing_still_pays_nothing():
+    r = SonicReward(stall_frames=10, cell_pay=0.2, death=1.0)
+    info = {"x": 1000, "y": 500, "lives": 3, "zone": 2, "act": 1}
+    assert r({}, dict(info)) == (0.0, False) and r(dict(info), dict(info))[0] == 0.0
+    prev = dict(info)
+    down = {**info, "y": 700}
+    assert r(prev, dict(down))[0] == pytest.approx(0.2)  # below: a new place, though x has not moved
+    assert r(down, dict(info))[0] == 0.0 and r(prev, dict(down))[0] == 0.0  # to and fro pays nothing
+    assert r(down, {**down, "lives": 2}) == (-1.0, True)
+
+
+def test_a_new_place_restarts_the_stall_clock():
+    r = SonicReward(stall_frames=5, cell_pay=0.2)
+    info = {"x": 1000, "y": 100, "lives": 3, "zone": 2, "act": 1}
+    r({}, dict(info))
+    ended = [r(info, {**info, "y": 100 + 40 * k})[1] for k in range(1, 20)]
+    assert not any(ended)  # climbing steadily is not being stuck
+    assert any(r(info, {**info, "y": 860})[1] for _ in range(6))

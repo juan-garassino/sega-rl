@@ -76,7 +76,7 @@ class RetroEnv(gym.Env):
         log_dir: Path | None = None,
         weak_spots: bool = False,
         points: LevelPoints | None = None,
-        where: Callable[[dict], float | None] | None = None,
+        where: Callable[[dict], tuple[int, int] | None] | None = None,
     ):
         super().__init__()
         cv2.setNumThreads(1)  # every env process would otherwise open a thread per host core
@@ -89,7 +89,7 @@ class RetroEnv(gym.Env):
         self.log_dir, self.start = log_dir, None  # where to note "first finished / first beat"; what this game started from
         self.states = states  # each game starts on one of these, drawn at random (or more often where it is weak)
         self.mix = WeakSpots(states) if states and weak_spots else None
-        self.points, self.where = points, where  # practice starts along a level; how far along (0..1) an info is
+        self.points, self.where = points, where  # practice starts in a level; the place an info is at
         self.practice = False
         self.buttons: list[str] = list(self.game.buttons)
         self.combos = combos

@@ -49,7 +49,9 @@ class Settings(BaseSettings):
     sf_stale: bool = False  # SEGARL_SF_STALE=true (repeating a hit pays less; hidden from the network, so off)
     sf_win_health_bonus: float = 1.0  # SEGARL_SF_WIN_HEALTH_BONUS=1.0 (round won: + this × health left)
     sonic_levels: Literal["single", "multi", "all"] = "all"  # SEGARL_SONIC_LEVELS=multi (multi: 13 acts, 4 held out; all: 17)
-    sonic_actions: Literal["run12", "jump9", "retro7"] = "run12"  # SEGARL_SONIC_ACTIONS=jump9 (mac-sonic-1) or retro7 (older models)
+    sonic_actions: Literal["short12", "run12", "jump9", "retro7"] = "short12"  # SEGARL_SONIC_ACTIONS=run12 (up to mac-sonic-5), jump9 (mac-sonic-1) or retro7
+    sonic_cell_pay: float = 0.2  # SEGARL_SONIC_CELL_PAY=0.2 (per new place in any direction; 100 px of new ground pay 1)
+    sonic_death: float = 1.0  # SEGARL_SONIC_DEATH=1.0 (taken for a lost life)
     sonic_level_episodes: int = 2  # SEGARL_SONIC_LEVEL_EPISODES=2 (multi: games per level and eval)
     sonic_stall_secs: float = 30.0  # SEGARL_SONIC_STALL_SECS=30 (end a Sonic episode after this long without new ground)
     sonic_practice_prob: float = 0.5  # SEGARL_SONIC_PRACTICE_PROB=0.5 (games starting at a point of the level already reached)

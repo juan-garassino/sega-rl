@@ -19,6 +19,15 @@ RUN_ACTIONS: list[Move] = JUMP_ACTIONS + [
     [(["LEFT"], 60)], [(["RIGHT"], 60)], [(["RIGHT"], 60), (["RIGHT", "B"], 20)],
 ]
 
+# Same twelve choices, shorter: a blind second of running killed Scrap Brain in 4 moves, and since the discount counts
+# decisions and not frames, the long moves were chosen for being long.
+SHORT_ACTIONS: list[Move] = JUMP_ACTIONS + [
+    [(["LEFT"], 30)], [(["RIGHT"], 24)], [(["RIGHT"], 12), (["RIGHT", "B"], 20)],
+]
+CELL = 128  # pixels: a place, for the exploring pay
+CELL_PAY = 0.2  # per new place in a game; 100 pixels of new ground pay 1
+DEATH = 1.0  # taken for a lost life, more than falling into a pit pays in new places
+
 # (zone, act) -> x at which the act ends; from the integration's script.lua `level_max_x`.
 LEVEL_MAX_X: dict[tuple[int, int], int] = {
     (0, 0): 0x2560, (0, 1): 0x1F60, (0, 2): 0x292A,
@@ -45,20 +54,31 @@ def stall_frames(cfg: Settings) -> int:
 
 
 class SonicReward:
-    """Reward = new ground reached (Δ furthest x)/100, +50 at the act's end.
+    """Reward = new ground reached (Δ furthest x)/100, a little per new place in any direction, +50 at the act's end.
+
+    Marble and Labyrinth go on above, below or behind a wall: paid for x alone, Sonic stood at it until the stall limit.
 
     Ends the episode on a lost life, or after `stall_frames` raw frames without new ground: standing in
     front of an obstacle earns nothing, so a stuck episode only burns compute (eval videos showed 4 min stuck).
     """
 
-    def __init__(self, stall_frames: int | None = None):
-        self.stall_frames = stall_frames
+    def __init__(self, stall_frames: int | None = None, cell_pay: float = 0.0, death: float = 0.0):
+        self.stall_frames, self.cell_pay, self.death = stall_frames, cell_pay, death
         self.reset()
 
     def reset(self) -> None:
         self.start_x: int | None = None
         self.max_x = 0
+        self.cells: set[tuple[int, int]] = set()
         self.frames_since_progress = 0
+
+    def _new_place(self, info: dict) -> bool:
+        if not self.cell_pay or "y" not in info:
+            return False
+        cell = (info["x"] // CELL, info["y"] // CELL)
+        new = bool(self.cells) and cell not in self.cells  # the place it starts in is not new
+        self.cells.add(cell)
+        return new
 
     def __call__(self, prev: dict, info: dict) -> tuple[float, bool]:
         x = info["x"]
@@ -67,7 +87,10 @@ class SonicReward:
             self.start_x = self.max_x = x
         reward = max(0, x - self.max_x) / 100.0
         first_frame = self.start_x == x and self.max_x == x and self.frames_since_progress == 0 and not prev
-        self.frames_since_progress = 0 if (x > self.max_x or first_frame) else self.frames_since_progress + 1
+        new_place = self._new_place(info)
+        if new_place:
+            reward += self.cell_pay
+        self.frames_since_progress = 0 if (x > self.max_x or first_frame or new_place) else self.frames_since_progress + 1
         self.max_x = max(self.max_x, x)
         stalled = self.stall_frames is not None and self.frames_since_progress >= self.stall_frames
         info["stalled"] = stalled
@@ -79,20 +102,21 @@ class SonicReward:
         life_lost = bool(prev) and info.get("lives", 0) < prev.get("lives", 0)
         if complete:
             reward += LEVEL_BONUS
+        if life_lost:
+            reward -= self.death
         return reward, complete or life_lost or stalled
 
 
-def level_fraction(info: dict) -> float | None:
-    """How far along its act a game is, 0 to 1 (None: unknown act)."""
-    end_x = LEVEL_MAX_X.get((info.get("zone", 0), info.get("act", 0)))
-    return None if end_x is None else min(1.0, info["x"] / end_x)
+def place(info: dict) -> tuple[int, int] | None:
+    """Where in its act a game is, in 256-pixel squares (None: not known)."""
+    return (info["x"] // 256, info["y"] // 256) if "x" in info and "y" in info else None
 
 
 def make(cfg: Settings) -> RetroEnv:
     states = {"multi": TRAIN_LEVELS, "all": ALL_LEVELS}.get(cfg.sonic_levels) if cfg.state is None else None
-    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)),
-                    combos={"run12": RUN_ACTIONS, "jump9": JUMP_ACTIONS, "retro7": SONIC_ACTIONS}[cfg.sonic_actions],
+    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg), cfg.sonic_cell_pay, cfg.sonic_death),
+                    combos={"short12": SHORT_ACTIONS, "run12": RUN_ACTIONS, "jump9": JUMP_ACTIONS, "retro7": SONIC_ACTIONS}[cfg.sonic_actions],
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,
-                    states=states, weak_spots=cfg.weak_spots, where=level_fraction,
+                    states=states, weak_spots=cfg.weak_spots, where=place,
                     points=LevelPoints(cfg.run_dir / "points", cfg.sonic_practice_prob) if states and cfg.sonic_practice_prob else None,
                     log_dir=None if states is None else cfg.run_dir / "achievements")

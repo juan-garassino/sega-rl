@@ -27,51 +27,52 @@ class WeakSpots:
 
 
 class LevelPoints:
-    """Emulator states along each level, saved the first few times a game gets there; all processes share the directory.
+    """Emulator states all over each level, one per place, saved the first time a game gets there; processes share them.
 
-    A level is cut into CHUNKS; each keeps at most KEEP states. A state counts only once the game has survived SURVIVE more
-    moves, so nobody practises from a moment that is already lost.
+    A state counts only once the game has survived SURVIVE more moves, so nobody practises from a moment already lost.
     """
 
-    CHUNKS, KEEP, SURVIVE = 20, 2, 8
+    SURVIVE, FURTHEST = 8, 0.3
 
     def __init__(self, directory: Path, prob: float):
         self.directory, self.prob = Path(directory), prob
-        self.furthest = 0  # the furthest chunk this game has entered
-        self.pending: list[list] = []  # [moves survived, chunk, state]
+        self.seen: set[tuple[int, int]] = set()  # places of this game
+        self.pending: list[list] = []  # [moves survived, place, state]
+        self.visits: dict[str, int] = {}
 
-    def _files(self, level: str) -> dict[int, list[Path]]:
-        out: dict[int, list[Path]] = {}
-        for f in self.directory.glob(f"{level}.c*.state"):
-            out.setdefault(int(f.name.split(".c")[-1].split("-")[0]), []).append(f)
-        return out
+    def _file(self, level: str, place: tuple[int, int]) -> Path:
+        return self.directory / f"{level}.x{place[0]:03d}y{place[1]:03d}.state"
 
     def pick(self, rng: np.random.Generator, level: str) -> Path | None:
-        """A state along the level, or None for the normal start. Half the practice is at the furthest point reached."""
-        self.furthest, self.pending = 0, []
-        if rng.random() >= self.prob or not (files := self._files(level)):
+        """A state in the level, or None for the normal start. Mostly places practised less, sometimes the furthest."""
+        self.seen, self.pending = set(), []
+        if rng.random() >= self.prob or not (files := sorted(self.directory.glob(f"{level}.x*.state"))):
             return None
-        chunks = sorted(files)
-        chunk = chunks[-1] if rng.random() < 0.5 else chunks[int(rng.integers(len(chunks)))]
-        self.furthest = chunk
-        return files[chunk][int(rng.integers(len(files[chunk])))]
+        if rng.random() < self.FURTHEST:
+            f = files[-1]  # the name starts with x
+        else:
+            w = np.array([1.0 / np.sqrt(1 + self.visits.get(f.name, 0)) for f in files])
+            f = files[int(rng.choice(len(files), p=w / w.sum()))]
+        self.visits[f.name] = self.visits.get(f.name, 0) + 1
+        return f
 
-    def reached(self, level: str, fraction: float, get_state: Callable[[], bytes]) -> None:
+    def reached(self, level: str, place: tuple[int, int], get_state: Callable[[], bytes]) -> None:
         """Call after every move the game survived."""
         for p in self.pending:
             p[0] += 1
         while self.pending and self.pending[0][0] >= self.SURVIVE:
-            _, chunk, state = self.pending.pop(0)
-            self._save(level, chunk, state)
-        chunk = min(self.CHUNKS - 1, int(fraction * self.CHUNKS))
-        if chunk > self.furthest:
-            self.furthest = chunk
-            if len(self._files(level).get(chunk, [])) < self.KEEP:
-                self.pending.append([0, chunk, get_state()])
+            _, there, state = self.pending.pop(0)
+            self._save(self._file(level, there), state)
+        if place in self.seen:
+            return
+        first = not self.seen  # where the game started
+        self.seen.add(place)
+        if not first and not self._file(level, place).exists():
+            self.pending.append([0, place, get_state()])
 
-    def _save(self, level: str, chunk: int, state: bytes) -> None:
+    def _save(self, target: Path, state: bytes) -> None:
         self.directory.mkdir(parents=True, exist_ok=True)
-        tmp = self.directory / f".{level}.{os.getpid()}.tmp"
+        tmp = self.directory / f".{target.stem}.{os.getpid()}.tmp"
         with gzip.open(tmp, "wb") as f:
             f.write(state)
-        tmp.replace(self.directory / f"{level}.c{chunk:02d}-{os.getpid()}.state")  # atomic
+        tmp.replace(target)  # atomic
