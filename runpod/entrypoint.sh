@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RunPod entrypoint for sega-rl.   MODE=train|smoke|bench|ladder (default train)
+# RunPod entrypoint for sega-rl.   MODE=train|smoke|bench|ladder|compare (default train)
 #
 # Lifecycle: exit if the run is already DONE -> pull ROMs, delete them from GCS, import + verify ->
 # pull the run dir (resume) -> export pod cost -> periodic GCS sync -> sega-rl $MODE.
@@ -116,7 +116,7 @@ sync_loop &
 SYNC_PID=$!
 
 log "sega-rl ${MODE} (game=${GAME}, run=${RUN_ID})"
-if [ "$MODE" = bench ] || [ "$MODE" = ladder ]; then
+if [ "$MODE" = bench ] || [ "$MODE" = ladder ] || [ "$MODE" = compare ]; then
     timeout -k 10 "${BENCH_TIMEOUT:-1800}" sega-rl "$MODE"  # no BudgetCallback here: this is the spend cap
 else
     sega-rl "$MODE"

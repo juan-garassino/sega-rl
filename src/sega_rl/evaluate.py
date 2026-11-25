@@ -31,8 +31,9 @@ class EvalResult:
 
 
 def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None,
-             max_steps: int | None = None, heartbeat: Callable[[], None] | None = None) -> EvalResult:
-    """Deterministic episodes in one env (the training process hosts no emulator, so this is allowed)."""
+             max_steps: int | None = None, heartbeat: Callable[[], None] | None = None,
+             deterministic: bool = True) -> EvalResult:
+    """Episodes in one env, taking the likeliest action or sampling like training does (the training process hosts no emulator, so this is allowed)."""
     if cfg.game == "sonic" and cfg.sonic_levels == "multi" and cfg.state is None:
         return run_levels_eval(model, cfg, video_path, max_steps, heartbeat)
     max_steps = max_steps or cfg.eval_max_steps
@@ -49,7 +50,7 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
             for _ in range(max_steps):
                 if heartbeat is not None:
                     heartbeat()
-                action, _ = model.predict(obs, deterministic=True)
+                action, _ = model.predict(obs, deterministic=deterministic)
                 obs, reward, done, infos = venv.step(action)
                 last_info = infos[0]
                 ep_ret += float(reward[0])

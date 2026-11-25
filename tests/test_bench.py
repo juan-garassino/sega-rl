@@ -44,3 +44,30 @@ def test_video_frames_are_enlarged(tmp_path):
 
     path = write_mp4([np.zeros((32, 48, 3), np.uint8)] * 3, tmp_path / "v.mp4")
     assert imageio.get_reader(path).get_meta_data()["size"] == (48 * SCALE, 32 * SCALE)
+
+
+def test_compare_plays_the_newest_checkpoint_both_ways(tmp_path):
+    from sega_rl.bench import compare_play
+    from sega_rl.config import Settings
+    from sega_rl.evaluate import EvalResult
+
+    cfg = Settings(game="sf", run_id="r", runs_dir=tmp_path)
+    ckpts = cfg.run_dir / "checkpoints"
+    ckpts.mkdir(parents=True)
+    for n in (1, 2):
+        (ckpts / f"ckpt_{n:010d}.zip").touch()
+    loaded, calls = [], []
+
+    def load(path):
+        loaded.append(path.name)
+        return "model"
+
+    def play(model, cfg, episodes, video_path=None, deterministic=True):
+        calls.append(deterministic)
+        return EvalResult(win_rate=0.5 if deterministic else 0.75, mean_damage_dealt=0, mean_damage_taken=0,
+                          mean_return=0, rounds_done=40)
+
+    out = compare_play(cfg, load=load, play=play)
+    assert loaded == ["ckpt_0000000002.zip"] and calls == [True, False]
+    assert out["sampled"]["win_rate"] == 0.75 and (cfg.run_dir / "compare.json").exists()
+    assert not (cfg.run_dir / "DONE").exists()  # the run can still be resumed
