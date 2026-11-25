@@ -35,7 +35,7 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
              deterministic: bool = True) -> EvalResult:
     """Episodes in one env, taking the likeliest action or sampling like training does (the training process hosts no emulator, so this is allowed)."""
     if cfg.game == "sonic" and cfg.sonic_levels == "multi" and cfg.state is None:
-        return run_levels_eval(model, cfg, video_path, max_steps, heartbeat)
+        return run_levels_eval(model, cfg, video_path, max_steps, heartbeat, deterministic=deterministic)
     max_steps = max_steps or cfg.eval_max_steps
     venv = VecFrameStack(DummyVecEnv([make_single(cfg, rank=10_000)]), cfg.frame_stack, channels_order="last")
     raw_env = venv.venv.envs[0]
@@ -88,7 +88,7 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
 
 def run_levels_eval(model, cfg: Settings, video_path: Path | None = None, max_steps: int | None = None,
                     heartbeat: Callable[[], None] | None = None,
-                    eval_fn: Callable[..., EvalResult] | None = None) -> EvalResult:
+                    eval_fn: Callable[..., EvalResult] | None = None, deterministic: bool = True) -> EvalResult:
     """Sonic: the 4 held-out levels (the score, with a video each) and 4 training levels (to spot memorising)."""
     from sega_rl.envs.sonic import HELD_OUT, TRAIN_EVAL
 
@@ -97,7 +97,7 @@ def run_levels_eval(model, cfg: Settings, video_path: Path | None = None, max_st
         video = video_path.with_name(f"{video_path.stem}_{level}.mp4") if video_path and level in HELD_OUT else None
         results[level] = (eval_fn or run_eval)(model, cfg.model_copy(update={"state": level}),
                                                cfg.sonic_level_episodes, video_path=video, max_steps=max_steps,
-                                               heartbeat=heartbeat)
+                                               heartbeat=heartbeat, deterministic=deterministic)
         logger.info("level %s: %s", level, results[level])
     mlflow_tracking.set_tag("eval_levels", json.dumps({k: [round(r.win_rate, 2), round(r.mean_progress, 2)]
                                                        for k, r in results.items()}))
@@ -189,6 +189,13 @@ class EvalCallback(BaseCallback):
         for k, v in asdict(result).items():
             if not math.isnan(v):
                 self.logger.record(f"eval/{k}", v)
+        if self.cfg.eval_sampled:
+            sampled = self.eval_fn(self.model, self.cfg, self.cfg.n_eval_episodes, heartbeat=self.heartbeat,
+                                   deterministic=False)
+            for k, v in asdict(sampled).items():
+                if not math.isnan(v):
+                    self.logger.record(f"eval_sampled/{k}", v)
+            logger.info("eval sampled @%d: %s", steps, sampled)
         key = score(self.cfg.game, result)
         logger.info("eval @%d: %s", steps, result)
         if self.best is None or key > self.best:

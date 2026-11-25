@@ -64,7 +64,7 @@ def test_best_model_selection(tmp_path):
         EvalResult(win_rate=0.1, mean_damage_dealt=90, mean_damage_taken=10, mean_return=0.0),
         EvalResult(win_rate=0.4, mean_damage_dealt=40, mean_damage_taken=80, mean_return=0.0),
     ])
-    cfg = Settings(game="sf", eval_freq=100)
+    cfg = Settings(game="sf", eval_freq=100, eval_sampled=False)
     cb = EvalCallback(cfg, tmp_path, eval_fn=lambda *a, **k: next(results))
     model = _RandomModel(MultiBinary(12))
     cb.init_callback(model)
@@ -91,7 +91,7 @@ def test_best_restored_on_resume(tmp_path):
     (tmp_path / "best.json").write_text(_json.dumps({"step": 1, "win_rate": 0.5, "mean_damage_dealt": 0,
                                                      "mean_damage_taken": 0, "mean_return": 0.0}))
     results = iter([EvalResult(win_rate=0.3, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0.0)])
-    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=lambda *a, **k: next(results))
+    cb = EvalCallback(Settings(game="sf", eval_freq=100, eval_sampled=False), tmp_path, eval_fn=lambda *a, **k: next(results))
     model = _RandomModel(MultiBinary(12))
     cb.init_callback(model)
     model.num_timesteps = 100
@@ -105,7 +105,7 @@ def test_best_model_uploaded_on_improvement(tmp_path, monkeypatch):
     uploads = []
     monkeypatch.setattr(mlflow_tracking, "log_artifact", lambda p, a=None: uploads.append(str(p)))
     results = iter([EvalResult(win_rate=0.2, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0.0)])
-    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=lambda *a, **k: next(results))
+    cb = EvalCallback(Settings(game="sf", eval_freq=100, eval_sampled=False), tmp_path, eval_fn=lambda *a, **k: next(results))
     model = _RandomModel(MultiBinary(12))
     cb.init_callback(model)
     model.num_timesteps = 100
@@ -119,7 +119,7 @@ def test_sonic_score_comes_from_held_out_levels_but_best_model_from_training_lev
 
     seen = []
 
-    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None):
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
         seen.append(cfg.state)
         held = cfg.state in HELD_OUT
         return EvalResult(win_rate=0.25 if held else 0.75, mean_damage_dealt=0, mean_damage_taken=0, mean_return=1,
@@ -128,3 +128,21 @@ def test_sonic_score_comes_from_held_out_levels_but_best_model_from_training_lev
     r = run_levels_eval(None, Settings(game="sonic"), eval_fn=fake)
     assert len(seen) == 8 and r.win_rate == 0.25 and r.train_win_rate == 0.75
     assert score("sonic", r) == (0.75, 0.9)
+
+
+def test_every_check_is_also_played_sampled(tmp_path):
+    from gymnasium.spaces import MultiBinary
+
+    played = []
+
+    def fake(model, cfg, episodes, video_path=None, heartbeat=None, deterministic=True):
+        played.append(deterministic)
+        return EvalResult(win_rate=0.4 if deterministic else 0.6, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0)
+
+    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=fake)
+    model = _RandomModel(MultiBinary(12))
+    cb.init_callback(model)
+    model.num_timesteps = 100
+    cb.on_step()
+    assert played == [True, False] and model.logger.records["eval_sampled/win_rate"] == 0.6
+    assert model.logger.records["eval/win_rate"] == 0.4  # best_model still follows the likeliest-move score

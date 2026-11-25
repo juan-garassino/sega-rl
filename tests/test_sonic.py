@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sega_rl.envs.sonic import ALL_LEVELS, HELD_OUT, LEVEL_MAX_X, TRAIN_LEVELS, SONIC_ACTIONS, SonicReward
+from sega_rl.envs.sonic import ALL_LEVELS, JUMP_ACTIONS, HELD_OUT, LEVEL_MAX_X, TRAIN_LEVELS, SONIC_ACTIONS, SonicReward
 
 
 def _info(x, lives=3, zone=0, act=0):
@@ -60,6 +60,7 @@ def test_action_mapping():
     vec = env._buttons_vec(SONIC_ACTIONS[2])
     assert vec[_Stub.buttons.index("RIGHT")] == 1 and int(np.sum(vec)) == 1
     assert len(SONIC_ACTIONS) == 7
+    assert JUMP_ACTIONS[:7] == SONIC_ACTIONS and ["RIGHT", "B"] in JUMP_ACTIONS
 
 
 def test_truncation_4500():

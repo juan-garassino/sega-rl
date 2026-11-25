@@ -6,10 +6,12 @@ from sega_rl.envs.common import RetroEnv
 GAME_ID = "SonicTheHedgehog-Genesis-v0"
 DEFAULT_STATE = "GreenHillZone.Act1"
 MAX_STEPS = 4500
-LEVEL_BONUS = 10.0
+LEVEL_BONUS = 50.0  # distance alone pays about 95 per act
 
 # OpenAI Retro Contest baseline action set.
 SONIC_ACTIONS: list[list[str]] = [[], ["LEFT"], ["RIGHT"], ["LEFT", "DOWN"], ["RIGHT", "DOWN"], ["DOWN"], ["B"]]
+# Running and jumping at once: without these every running jump takes two separate actions.
+JUMP_ACTIONS = SONIC_ACTIONS + [["RIGHT", "B"], ["LEFT", "B"]]
 
 # (zone, act) -> x at which the act ends; from the integration's script.lua `level_max_x`.
 LEVEL_MAX_X: dict[tuple[int, int], int] = {
@@ -37,7 +39,7 @@ def stall_frames(cfg: Settings) -> int:
 
 
 class SonicReward:
-    """Reward = new ground reached (Δ furthest x)/100, +10 at the act's end.
+    """Reward = new ground reached (Δ furthest x)/100, +50 at the act's end.
 
     Ends the episode on a lost life, or after `stall_frames` raw frames without new ground: standing in
     front of an obstacle earns nothing, so a stuck episode only burns compute (eval videos showed 4 min stuck).
@@ -76,6 +78,7 @@ class SonicReward:
 
 def make(cfg: Settings) -> RetroEnv:
     states = TRAIN_LEVELS if cfg.sonic_levels == "multi" and cfg.state is None else None
-    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)), combos=SONIC_ACTIONS,
+    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)),
+                    combos=JUMP_ACTIONS if cfg.sonic_actions == "jump9" else SONIC_ACTIONS,
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,
                     states=states)
