@@ -111,3 +111,20 @@ def test_best_model_uploaded_on_improvement(tmp_path, monkeypatch):
     model.num_timesteps = 100
     cb.on_step()
     assert any(u.endswith("best_model.zip") for u in uploads)
+
+
+def test_sonic_score_comes_from_held_out_levels_but_best_model_from_training_levels():
+    from sega_rl.envs.sonic import HELD_OUT
+    from sega_rl.evaluate import run_levels_eval, score
+
+    seen = []
+
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None):
+        seen.append(cfg.state)
+        held = cfg.state in HELD_OUT
+        return EvalResult(win_rate=0.25 if held else 0.75, mean_damage_dealt=0, mean_damage_taken=0, mean_return=1,
+                          mean_progress=0.4 if held else 0.9)
+
+    r = run_levels_eval(None, Settings(game="sonic"), eval_fn=fake)
+    assert len(seen) == 8 and r.win_rate == 0.25 and r.train_win_rate == 0.75
+    assert score("sonic", r) == (0.75, 0.9)

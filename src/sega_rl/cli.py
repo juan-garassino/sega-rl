@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--model", type=Path, required=True)
     ev.add_argument("--episodes", type=int, default=5)
     ev.add_argument("--video", type=Path)
+    with_overrides(sub.add_parser("bench", help="time emulators vs updates and try every SF move (pod only)"))
     sub.add_parser("smoke", help="2-env Airstriker run, ~2k steps, in a temp dir")
     st = sub.add_parser("status", help="live run state from MLflow (health, eval, fps)")
     st.add_argument("run_name", help="run id = MLflow run name, e.g. sf-20261124-180000")
@@ -71,6 +72,12 @@ def _cmd_eval(args: argparse.Namespace) -> int:
     model = PPO.load(args.model)
     print(run_eval(model, settings_from_args(args), args.episodes, video_path=args.video))
     return 0
+
+
+def _cmd_bench(args: argparse.Namespace) -> int:
+    from sega_rl import bench
+
+    return bench.run(settings_from_args(args))
 
 
 def _cmd_smoke(args: argparse.Namespace) -> int:
@@ -128,6 +135,6 @@ def _cmd_import_roms(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
-    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke, "status": _cmd_status, "check-rom": _cmd_check_rom, "videos": _cmd_videos,
+    handlers = {"train": _cmd_train, "tune": _cmd_tune, "eval": _cmd_eval, "smoke": _cmd_smoke, "bench": _cmd_bench, "status": _cmd_status, "check-rom": _cmd_check_rom, "videos": _cmd_videos,
                 "import-roms": _cmd_import_roms}
     return handlers[args.cmd](args)

@@ -21,6 +21,13 @@ LEVEL_MAX_X: dict[tuple[int, int], int] = {
     (5, 0): 0x2260, (5, 1): 0x1EE0,
 }
 
+ALL_LEVELS = [f"{zone}Zone.Act{act}" for zone, acts in (("GreenHill", 3), ("Marble", 3), ("SpringYard", 3),
+                                                       ("Labyrinth", 3), ("StarLight", 3), ("ScrapBrain", 2))
+              for act in range(1, acts + 1)]
+# Never trained on: the only honest score for "plays Sonic" rather than "memorised a level".
+HELD_OUT = ["GreenHillZone.Act2", "MarbleZone.Act2", "SpringYardZone.Act1", "StarLightZone.Act3"]
+TRAIN_LEVELS = [s for s in ALL_LEVELS if s not in HELD_OUT]
+TRAIN_EVAL = ["GreenHillZone.Act1", "MarbleZone.Act1", "SpringYardZone.Act2", "StarLightZone.Act1"]
 
 GENESIS_FPS = 60
 
@@ -68,5 +75,7 @@ class SonicReward:
 
 
 def make(cfg: Settings) -> RetroEnv:
+    states = TRAIN_LEVELS if cfg.sonic_levels == "multi" and cfg.state is None else None
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)), combos=SONIC_ACTIONS,
-                    obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS)
+                    obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,
+                    states=states)

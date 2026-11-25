@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from sega_rl.envs.street_fighter import SFReward
+from sega_rl.envs.street_fighter import FIGHTER_ATTACKS, FIGHTER_MOVES, SFReward
 
 BASE = {"health": 176, "enemy_health": 176, "matches_won": 0, "enemy_matches_won": 0, "score": 0}
 
@@ -57,6 +57,43 @@ def test_damage_recorded_in_info():
     assert info["damage_dealt"] == 26 and info["damage_taken"] == 6
 
 
+def test_winning_with_health_left_pays_more():
+    fn = SFReward("shaped", win_health_bonus=1.0)
+    fn({}, _info())
+    fn(_info(), _info(health=88, enemy_health=-1))
+    r, _ = fn(_info(health=88, enemy_health=-1), _info(health=0, enemy_health=0, matches_won=1))
+    assert r == pytest.approx(1.0 + 0.5)  # the health when the KO landed, not the cleared bar
+
+
+def _hit(fn, use, move, enemy_health, prev_health):
+    prev, info = _info(enemy_health=prev_health), _info(enemy_health=enemy_health, move=move, move_id=use)
+    r, _ = fn(prev, info)
+    return r * 176, info["damage_dealt"]
+
+
+def test_repeating_the_same_hit_pays_less_but_damage_is_reported_in_full():
+    fn = SFReward("shaped", attacks=frozenset({3, 4}))
+    fn({}, _info())
+    paid = [_hit(fn, use, 3, 170 - 10 * use, 180 - 10 * use) for use in range(1, 4)]
+    assert [round(p) for p, _ in paid] == [10, 5, 3] or [round(p, 1) for p, _ in paid] == [10.0, 5.0, 2.5]
+    assert [d for _, d in paid] == [10, 10, 10]
+    assert _hit(fn, 4, 4, 130, 140)[0] == pytest.approx(10)  # a different move pays in full
+
+
+def test_one_hit_draining_over_several_frames_is_one_use():
+    fn = SFReward("shaped", attacks=frozenset({3}))
+    fn({}, _info())
+    assert sum(_hit(fn, 1, 3, 176 - n - 1, 176 - n)[0] for n in range(8)) == pytest.approx(8)
+
+
+def test_fighter_moves_include_every_special_both_ways():
+    assert len(set(FIGHTER_MOVES)) == len(FIGHTER_MOVES)
+    for name in ("hadouken", "shoryuken", "tatsumaki", "forward_hp", "jump_kick"):
+        assert {f"{name}_left", f"{name}_right"} <= set(FIGHTER_MOVES)
+    names = list(FIGHTER_MOVES)
+    assert all(names[i] not in ("idle", "left", "right", "up") for i in FIGHTER_ATTACKS)
+
+
 @pytest.mark.rom
 def test_sf_rom_smoke():
     import stable_retro
@@ -96,10 +133,10 @@ def test_damage_weights():
     assert r_taken == pytest.approx(-0.5 * 50 / 176)
 
 
-def test_sf_defaults_discrete_and_lower_lr():
+def test_sf_defaults_fighter_and_lower_lr():
     from sega_rl.config import Settings, default_learning_rate
 
-    assert Settings(game="sf").sf_actions == "discrete"
+    assert Settings(game="sf").sf_actions == "fighter"
     assert default_learning_rate("sf") == 1e-4
     assert default_learning_rate("sonic") == 2.5e-4
 

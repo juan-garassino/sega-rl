@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sega_rl.envs.sonic import LEVEL_MAX_X, SONIC_ACTIONS, SonicReward
+from sega_rl.envs.sonic import ALL_LEVELS, HELD_OUT, LEVEL_MAX_X, TRAIN_LEVELS, SONIC_ACTIONS, SonicReward
 
 
 def _info(x, lives=3, zone=0, act=0):
@@ -117,3 +117,8 @@ def test_stall_frames_from_config():
     from sega_rl.envs.sonic import stall_frames
 
     assert stall_frames(Settings(game="sonic")) == 30 * 60
+
+
+def test_held_out_levels_are_never_trained_on():
+    assert len(ALL_LEVELS) == 17 and len(HELD_OUT) == 4 and len(TRAIN_LEVELS) == 13
+    assert not set(HELD_OUT) & set(TRAIN_LEVELS) and set(HELD_OUT) | set(TRAIN_LEVELS) == set(ALL_LEVELS)

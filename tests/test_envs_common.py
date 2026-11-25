@@ -127,3 +127,27 @@ def test_noop_reset_varies_start():
         env.reset(seed=seed)
         counts.append(len(stub.calls))
     assert len(set(counts)) > 1 and max(counts) <= 30
+
+
+def test_a_move_can_be_a_timed_sequence():
+    stub = _StubRetro()
+    hadouken = [(["DOWN"], 3), (["DOWN", "RIGHT"], 3), (["RIGHT", "Z"], 2)]
+    env = RetroEnv("stub", None, _score_reward, combos=[[], hadouken], obs_mode="frame", frame_skip=4, inner=stub)
+    env.reset()
+    _, reward, _, _, info = env.step(1)
+    assert len(stub.calls) == 8 and reward == 8.0 and info["move"] == 1
+    assert stub.calls[0][BUTTONS.index("DOWN")] == 1 and stub.calls[0].sum() == 1
+    assert stub.calls[4][BUTTONS.index("RIGHT")] == 1 and stub.calls[7][BUTTONS.index("Z")] == 1
+    env.step(0)
+    assert len(stub.calls) == 12
+
+
+def test_each_game_starts_on_one_of_the_given_states():
+    stub = _StubRetro()
+    stub.loaded = []
+    stub.load_state = stub.loaded.append
+    env = RetroEnv("stub", None, _score_reward, combos=None, obs_mode="frame", frame_skip=1, inner=stub,
+                   states=["A", "B", "C"])
+    for seed in range(20):
+        env.reset(seed=seed)
+    assert set(stub.loaded) == {"A", "B", "C"}

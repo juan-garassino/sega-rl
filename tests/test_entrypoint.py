@@ -163,3 +163,8 @@ def test_uses_gcloud_storage_not_gsutil(tmp_path):
     _, calls, _ = _run(tmp_path, SEGARL_GAME="sf")
     assert "gsutil" not in calls
     assert "gcloud storage cp" in calls and "gcloud storage rm" in calls
+
+
+def test_bench_mode_is_time_capped_and_terminates(tmp_path):
+    rc, calls, _ = _run(tmp_path, MODE="bench", BENCH_TIMEOUT="5")
+    assert rc == 0 and "sega-rl bench" in calls and "podTerminate" in calls
