@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     gamma: float | None = None  # SEGARL_GAMMA=0.997 (None = per game: sf 0.997 so a win counts from the round's start, sonic 0.99)
     n_steps: int | None = None  # SEGARL_N_STEPS=256 (None = 128 per env)
     device: str = "auto"  # SEGARL_DEVICE=mps (Apple GPU; auto = NVIDIA or CPU)
+    init_from: Path | None = None  # SEGARL_INIT_FROM=runs/a/checkpoints/ckpt_x.zip (new run from this network; may add frames)
     params_file: Path | None = None  # SEGARL_PARAMS_FILE=runs/x/best_params.json
     eval_freq: int = 250_000  # SEGARL_EVAL_FREQ=250000
     eval_sampled: bool = True  # SEGARL_EVAL_SAMPLED=false (also check sampled play, as training does: eval_sampled/*)

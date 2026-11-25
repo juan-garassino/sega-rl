@@ -16,6 +16,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from sega_rl.config import Settings, default_learning_rate
 from sega_rl.envs.factory import make_vec_env
 from sega_rl.evaluate import EvalCallback, run_baselines
+from sega_rl.graft import graft_frames
 from sega_rl.monitoring import mlflow_tracking
 from sega_rl.monitoring.health import HealthCallback, HealthMonitor
 
@@ -203,6 +204,9 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
             keep_counters_on_cpu(model)
         else:
             model = build_model(cfg, env)
+            if cfg.init_from:
+                logger.info("starting from %s", cfg.init_from)
+                graft_frames(PPO.load(cfg.init_from, device=cfg.device), model)
         model.set_logger(_make_logger(run_dir))
         if cfg.game in ("sf", "sonic"):
             mlflow_tracking.log_metrics(run_baselines(cfg, run_dir, env.action_space), step=0)
@@ -210,7 +214,7 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         callbacks = CallbackList([keeper, health, EvalCallback(cfg, run_dir, heartbeat=health.heartbeat), budget])
         remaining = cfg.steps - model.num_timesteps
         if remaining > 0:
-            model.learn(total_timesteps=remaining, callback=callbacks, reset_num_timesteps=resume_from is None,
+            model.learn(total_timesteps=remaining, callback=callbacks, reset_num_timesteps=model.num_timesteps == 0,
                         log_interval=10)
         if health.last_report and health.last_report.status == "CRITICAL":
             status = "critical"
