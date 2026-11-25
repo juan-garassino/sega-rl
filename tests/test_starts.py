@@ -27,7 +27,10 @@ def test_points_are_saved_shared_and_limited(tmp_path):
     assert a.pick(rng, "GreenHillZone.Act1") is None  # nothing reached: the normal start
     a.reached("GreenHillZone.Act1", 0.02, lambda: pytest.fail("the first chunk is the normal start"))
     a.reached("GreenHillZone.Act1", 0.31, lambda: b"at 31%")
-    a.reached("GreenHillZone.Act1", 0.31, lambda: pytest.fail("not further than before in this game"))
+    for _ in range(7):
+        a.reached("GreenHillZone.Act1", 0.31, lambda: pytest.fail("not further than before in this game"))
+        assert not tmp_path.exists() or not list(tmp_path.iterdir())  # not survived long enough yet
+    a.reached("GreenHillZone.Act1", 0.31, lambda: b"")
     assert b.pick(rng, "MarbleZone.Act1") is None
     f = b.pick(rng, "GreenHillZone.Act1")
     assert gzip.open(f).read() == b"at 31%" and b.furthest == 6
@@ -36,6 +39,17 @@ def test_points_are_saved_shared_and_limited(tmp_path):
         (tmp_path / f"GreenHillZone.Act1.c09-{pid}.state").touch()
     b.reached("GreenHillZone.Act1", 0.47, lambda: pytest.fail("two states of this chunk are enough"))
     assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
+
+
+def test_a_game_that_dies_right_after_leaves_no_point(tmp_path):
+    p, rng = LevelPoints(tmp_path, 1.0), np.random.default_rng(0)
+    p.pick(rng, "L")
+    for _ in range(5):
+        p.reached("L", 0.5, lambda: b"doomed")
+    p.pick(rng, "L")  # the next game
+    for _ in range(20):
+        p.reached("L", 0.01, lambda: b"")
+    assert not list(tmp_path.iterdir())
 
 
 def test_half_the_practice_is_at_the_furthest_point(tmp_path):
@@ -53,7 +67,7 @@ def test_how_far_along_a_level():
 
 
 class _Game:
-    """A stand-in for the emulator: x grows by 100 per frame; the level is 1000 long."""
+    """A stand-in for the emulator: x grows by 20 per frame; the level is 1000 long."""
 
     buttons = ["B"]
 
@@ -75,7 +89,7 @@ class _Game:
         return np.zeros((224, 320, 3), np.uint8), {"x": 0}
 
     def step(self, buttons):
-        self.x += 100
+        self.x += 20
         return np.zeros((224, 320, 3), np.uint8), 0.0, False, False, {"x": self.x}
 
 
@@ -93,7 +107,7 @@ def test_a_game_saves_points_then_practises_from_them(tmp_path):
     over = False
     while not over:
         _, _, over, _, _ = env.step(1)
-    assert len(list((tmp_path / "p").glob("L.c*.state"))) == 9  # 10% .. 90%; the end itself is not a start
+    assert len(list((tmp_path / "p").glob("L.c*.state"))) >= 14  # every 5%, minus the last ones: not survived long enough
     assert env.mix.rate["L"] > 0.5 and (tmp_path / "a" / "finish_L.json").exists()
     rate = env.mix.rate["L"]
     env.reset(seed=1)
