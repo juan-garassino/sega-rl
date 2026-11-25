@@ -46,7 +46,7 @@ def build_model(cfg: Settings, env: VecEnv) -> PPO:
     params["learning_rate"] = _linear(params["learning_rate"])
     if not torch.cuda.is_available():
         torch.set_num_threads(torch_threads(os.cpu_count() or 2, cfg.n_envs))
-    return PPO("CnnPolicy", env, seed=cfg.seed, verbose=0, **params)
+    return PPO("CnnPolicy", env, seed=cfg.seed, device=cfg.device, verbose=0, **params)
 
 
 class CheckpointKeeper(BaseCallback):
@@ -174,7 +174,7 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         resume_from = _latest_checkpoint(ckpt_dir)
         if resume_from:
             logger.info("resuming from %s", resume_from)
-            model = PPO.load(resume_from, env=env)
+            model = PPO.load(resume_from, env=env, device=cfg.device)
         else:
             model = build_model(cfg, env)
         model.set_logger(_make_logger(run_dir))

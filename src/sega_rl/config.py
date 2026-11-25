@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     frame_stack: int = 4  # SEGARL_FRAME_STACK=4
     noop_max: int = 30  # SEGARL_NOOP_MAX=30 (random no-op frames at reset; 0 = always the same start)
     seed: int = 0  # SEGARL_SEED=0
+    device: str = "auto"  # SEGARL_DEVICE=mps (Apple GPU; auto = NVIDIA or CPU)
     params_file: Path | None = None  # SEGARL_PARAMS_FILE=runs/x/best_params.json
     eval_freq: int = 250_000  # SEGARL_EVAL_FREQ=250000
     eval_sampled: bool = True  # SEGARL_EVAL_SAMPLED=false (also check sampled play, as training does: eval_sampled/*)
