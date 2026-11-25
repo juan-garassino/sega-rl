@@ -151,3 +151,15 @@ def test_each_game_starts_on_one_of_the_given_states():
     for seed in range(20):
         env.reset(seed=seed)
     assert set(stub.loaded) == {"A", "B", "C"}
+
+
+def test_a_start_can_be_our_own_state_file(tmp_path):
+    import gzip
+
+    from sega_rl.envs.common import load_start
+
+    f = tmp_path / "Ken.state"
+    f.write_bytes(gzip.compress(b"ken"))
+    stub = _StubRetro()
+    load_start(stub, str(f))
+    assert stub.initial_state == b"ken"

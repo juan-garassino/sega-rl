@@ -36,6 +36,8 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
     """Episodes in one env, taking the likeliest action or sampling like training does (the training process hosts no emulator, so this is allowed)."""
     if cfg.game == "sonic" and cfg.sonic_levels == "multi" and cfg.state is None:
         return run_levels_eval(model, cfg, video_path, max_steps, heartbeat, deterministic=deterministic)
+    if cfg.game == "sf" and cfg.sf_states_dir is not None and cfg.state is None:
+        return run_fights_eval(model, cfg, video_path, max_steps, heartbeat, deterministic=deterministic)
     max_steps = max_steps or cfg.eval_max_steps
     venv = VecFrameStack(DummyVecEnv([make_single(cfg, rank=10_000)]), cfg.frame_stack, channels_order="last")
     raw_env = venv.venv.envs[0]
@@ -110,6 +112,33 @@ def run_levels_eval(model, cfg: Settings, video_path: Path | None = None, max_st
                       train_win_rate=mean(TRAIN_EVAL, "win_rate"), train_progress=mean(TRAIN_EVAL, "mean_progress"))
 
 
+def run_fights_eval(model, cfg: Settings, video_path: Path | None = None, max_steps: int | None = None,
+                    heartbeat: Callable[[], None] | None = None, eval_fn: Callable[..., EvalResult] | None = None,
+                    deterministic: bool = True) -> EvalResult:
+    """Street Fighter: rounds won per opponent. Score = opponents never trained on; train_* = the others."""
+    from sega_rl.envs.street_fighter import opponents
+
+    split = {"heldout": opponents(cfg, "heldout"), "train": opponents(cfg, "train")}
+    per: dict[str, list[EvalResult]] = {"heldout": [], "train": []}
+    for name, states in split.items():
+        for state in states:
+            who = Path(state).stem
+            video = video_path.with_name(f"{video_path.stem}_{who}.mp4") if video_path and name == "heldout" else None
+            r = (eval_fn or run_eval)(model, cfg.model_copy(update={"state": state}), cfg.sf_fight_episodes,
+                                      video_path=video, max_steps=max_steps, heartbeat=heartbeat,
+                                      deterministic=deterministic)
+            logger.info("opponent %s (%s): %s", who, name, r)
+            per[name].append(r)
+
+    def mean(results, field) -> float:
+        return float(np.mean([getattr(r, field) for r in results]))
+
+    return EvalResult(win_rate=mean(per["heldout"], "win_rate"), mean_damage_dealt=mean(per["heldout"], "mean_damage_dealt"),
+                      mean_damage_taken=mean(per["heldout"], "mean_damage_taken"),
+                      mean_return=mean(per["heldout"], "mean_return"), rounds_done=sum(r.rounds_done for r in per["heldout"]),
+                      train_win_rate=mean(per["train"], "win_rate"))
+
+
 class StandStill:
     """Presses nothing. If this scores, the reward or the metric is wrong."""
 
@@ -145,6 +174,8 @@ def run_baselines(cfg: Settings, run_dir: Path, action_space, eval_fn: Callable[
 
 def score(game: str, r: EvalResult) -> tuple[float, ...]:
     """Ordering key for best-model selection (higher is better)."""
+    if game == "sf" and not math.isnan(r.train_win_rate):
+        return (r.train_win_rate, r.mean_return)  # never pick by the held-out fights
     if game == "sf":
         return (r.win_rate, r.mean_damage_dealt - r.mean_damage_taken)
     if game == "sonic" and not math.isnan(r.train_win_rate):

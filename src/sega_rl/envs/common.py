@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import logging
 from typing import Callable, Literal
 
@@ -31,9 +32,22 @@ def signed_delta(cur: np.ndarray, prev: np.ndarray) -> np.ndarray:
     return ((d + 255) // 2).astype(np.uint8)
 
 
+def load_start(game, state: str) -> None:
+    """A state shipped with the integration, or a .state file of our own (from `sega-rl ladder`)."""
+    if state.endswith(".state"):
+        with gzip.open(state, "rb") as f:
+            game.initial_state = f.read()
+    else:
+        game.load_state(state)
+
+
 def _make_retro(game_id: str, state: str | None) -> gym.Env:
     import stable_retro
 
+    if state is not None and state.endswith(".state"):
+        game = _make_retro(game_id, None)
+        load_start(game, state)
+        return game
     kwargs = {"use_restricted_actions": stable_retro.Actions.FILTERED, "render_mode": None}
     if state is not None:
         kwargs["state"] = state
@@ -106,7 +120,7 @@ class RetroEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         if self.states:
-            self.game.load_state(self.states[int(self.np_random.integers(len(self.states)))])
+            load_start(self.game, self.states[int(self.np_random.integers(len(self.states)))])
         frame, info = self.game.reset(seed=seed)
         if hasattr(self.reward_fn, "reset"):
             self.reward_fn.reset()

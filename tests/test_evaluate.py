@@ -146,3 +146,22 @@ def test_every_check_is_also_played_sampled(tmp_path):
     cb.on_step()
     assert played == [True, False] and model.logger.records["eval_sampled/win_rate"] == 0.6
     assert model.logger.records["eval/win_rate"] == 0.4  # best_model still follows the likeliest-move score
+
+
+def test_sf_is_scored_on_opponents_it_never_trained_on(tmp_path):
+    from sega_rl.evaluate import run_fights_eval, score
+
+    for split, names in (("train", ("Ken", "Guile")), ("heldout", ("Sagat",))):
+        (tmp_path / split).mkdir()
+        for n in names:
+            (tmp_path / split / f"{n}.state").touch()
+    seen = []
+
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
+        seen.append(cfg.state.split("/")[-1])
+        held = "Sagat" in cfg.state
+        return EvalResult(win_rate=0.3 if held else 0.8, mean_damage_dealt=1, mean_damage_taken=1, mean_return=1, rounds_done=5)
+
+    r = run_fights_eval(None, Settings(game="sf", sf_states_dir=tmp_path), eval_fn=fake)
+    assert len(seen) == 3 and r.win_rate == 0.3 and r.train_win_rate == 0.8
+    assert score("sf", r)[0] == 0.8  # the best model is never picked by the held-out fights

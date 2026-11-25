@@ -59,8 +59,9 @@ class SFReward:
 
     def __init__(self, mode: Literal["shaped", "score"] = "shaped", dealt_weight: float = 1.0,
                  taken_weight: float = 1.0, win_health_bonus: float = 0.0,
-                 attacks: frozenset[int] = frozenset()):
+                 attacks: frozenset[int] = frozenset(), single_match: bool = False):
         self.mode = mode
+        self.single_match = single_match  # end at the first match won or lost: one opponent per game
         self.win_health_bonus = win_health_bonus
         self.attacks = attacks
         self.dealt_weight = dealt_weight
@@ -107,17 +108,30 @@ class SFReward:
         info["damage_dealt"] = dealt
         info["damage_taken"] = taken
         info["round_won"] = True if won else False if lost else None
+        over = self.single_match and max(info["matches_won"], info["enemy_matches_won"]) >= 2
         if self.mode == "score":
-            return float(info["score"] - prev["score"]), False
+            return float(info["score"] - prev["score"]), over
         shaped = (self.dealt_weight * paid - self.taken_weight * taken) / MAX_HEALTH
         bonus = 1.0 + self.win_health_bonus * self.health / MAX_HEALTH
-        return shaped + (bonus if won else 0.0) - (1.0 if lost else 0.0), False
+        return shaped + (bonus if won else 0.0) - (1.0 if lost else 0.0), over
+
+
+def opponents(cfg: Settings, split: str) -> list[str] | None:
+    """Start states of the opponents to train on ("train") or only test on ("heldout"), from cfg.sf_states_dir."""
+    if cfg.sf_states_dir is None:
+        return None
+    found = sorted(str(p) for p in (cfg.sf_states_dir / split).glob("*.state"))
+    if not found:
+        raise FileNotFoundError(f"no *.state in {cfg.sf_states_dir / split}")
+    return found
 
 
 def make(cfg: Settings) -> RetroEnv:
     fighter = cfg.sf_actions == "fighter"
     reward = SFReward(cfg.reward_mode, dealt_weight=cfg.sf_dealt_weight, taken_weight=cfg.sf_taken_weight,
-                      win_health_bonus=cfg.sf_win_health_bonus, attacks=FIGHTER_ATTACKS if fighter else frozenset())
+                      win_health_bonus=cfg.sf_win_health_bonus, attacks=FIGHTER_ATTACKS if fighter else frozenset(),
+                      single_match=cfg.sf_states_dir is not None)
     combos = list(FIGHTER_MOVES.values()) if fighter else SF_ACTIONS if cfg.sf_actions == "discrete" else None
-    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos,
+    states = opponents(cfg, "train") if cfg.state is None else None
+    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos, states=states,
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max)
