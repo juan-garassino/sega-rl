@@ -86,6 +86,11 @@ def test_one_hit_draining_over_several_frames_is_one_use():
     assert sum(_hit(fn, 1, 3, 176 - n - 1, 176 - n)[0] for n in range(8)) == pytest.approx(8)
 
 
+def test_specials_start_from_neutral_so_walking_forward_does_not_change_the_motion():
+    for name in ("hadouken_right", "hadouken_left", "tatsumaki_right", "tatsumaki_left"):
+        assert FIGHTER_MOVES[name][0][0] == [] and FIGHTER_MOVES[name][0][1] >= 10
+
+
 def test_fighter_moves_include_every_special_both_ways():
     assert len(set(FIGHTER_MOVES)) == len(FIGHTER_MOVES)
     for name in ("hadouken", "shoryuken", "tatsumaki", "forward_hp", "jump_kick"):

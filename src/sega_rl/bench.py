@@ -20,9 +20,11 @@ from sega_rl.envs.common import RetroEnv
 from sega_rl.monitoring.video import write_mp4
 
 logger = logging.getLogger(__name__)
-THREADS = (4, 8, 16, 31)
+THREADS = (4, 8)
+N_ENVS = (16, 28)
 REPEATS = 8
-NEAR_STEPS = 40  # RIGHT held this long walks Ryu up to Guile
+INTRO_STEPS = 60  # the game ignores input until after FIGHT!
+NEAR_STEPS = 60  # RIGHT held this long pushes Guile to the corner
 
 
 class SplitTimer(BaseCallback):
@@ -86,10 +88,10 @@ def try_moves(env: RetroEnv, moves: list[str], names: list[str], repeats: int = 
             damage = 0.0
             for i in range(repeats):
                 env.reset(seed=i)
-                script = [right] * walk + [moves.index(name)] + [idle] * 20  # a fireball needs time to arrive
+                script = [idle] * INTRO_STEPS + [right] * walk + [moves.index(name)] + [idle] * 20  # a fireball needs time to arrive
                 for j, action in enumerate(script):
                     _, _, done, truncated, info = env.step(action)
-                    if j >= walk:
+                    if j >= INTRO_STEPS + walk:
                         damage += info.get("damage_dealt", 0)
                     if frames is not None and i == 0:
                         frames.append(env.render())
@@ -105,7 +107,7 @@ def run(cfg: Settings) -> int:
     from sega_rl.envs import street_fighter as sf
 
     cfg.run_dir.mkdir(parents=True, exist_ok=True)
-    report: dict = {"training": time_training(cfg)}
+    report: dict = {"training": {f"envs_{n}": time_training(cfg.model_copy(update={"n_envs": n})) for n in N_ENVS}}
     if cfg.game == "sf":
         moves = list(sf.FIGHTER_MOVES)
         names = ["idle", *(moves[i] for i in sorted(sf.FIGHTER_ATTACKS))]

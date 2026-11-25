@@ -138,5 +138,11 @@ def test_checkpoint_uploaded_each_save(tmp_path, monkeypatch):
 def test_torch_threads_leave_cores_for_envs():
     from sega_rl.train import torch_threads
 
-    assert torch_threads(cpu_count=32, n_envs=16) == 16
+    assert torch_threads(cpu_count=22, n_envs=16) == 6
     assert torch_threads(cpu_count=8, n_envs=16) == 2
+
+
+def test_torch_threads_are_capped_however_many_cores_the_host_reports():
+    from sega_rl.train import torch_threads
+
+    assert torch_threads(128, 16) == 8 and torch_threads(32, 16) == 8 and torch_threads(4, 16) == 2

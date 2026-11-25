@@ -28,8 +28,10 @@ ENV_CRASH_ERRORS = (EOFError, BrokenPipeError, ConnectionResetError)
 
 
 def torch_threads(cpu_count: int, n_envs: int) -> int:
-    """CPU pods: leave one core per emulator process, give torch the rest (at least 2)."""
-    return max(2, cpu_count - n_envs)
+    """One core per emulator process, the rest for torch, 2 to 8: the bench measured 8 = 284 fps, 16 = 276, 31 = 55.
+
+    os.cpu_count() can be the host's core count rather than the pod's share, hence the cap."""
+    return min(8, max(2, cpu_count - n_envs))
 
 
 def _linear(start: float) -> Callable[[float], float]:
