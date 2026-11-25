@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from sega_rl.config import Settings
-from sega_rl.envs.common import RetroEnv
+from sega_rl.envs.common import Move, RetroEnv
 
 GAME_ID = "SonicTheHedgehog-Genesis-v0"
 DEFAULT_STATE = "GreenHillZone.Act1"
@@ -12,6 +12,11 @@ LEVEL_BONUS = 50.0  # distance alone pays about 95 per act
 SONIC_ACTIONS: list[list[str]] = [[], ["LEFT"], ["RIGHT"], ["LEFT", "DOWN"], ["RIGHT", "DOWN"], ["DOWN"], ["B"]]
 # Running and jumping at once: without these every running jump takes two separate actions.
 JUMP_ACTIONS = SONIC_ACTIONS + [["RIGHT", "B"], ["LEFT", "B"]]
+# Backing up for a run-up takes ~30 right choices in a row with 4-frame actions (sonic-multi-1 stood at the foot of a
+# quarter-pipe until the stall limit); held for a second, it is two actions.
+RUN_ACTIONS: list[Move] = JUMP_ACTIONS + [
+    [(["LEFT"], 60)], [(["RIGHT"], 60)], [(["RIGHT"], 60), (["RIGHT", "B"], 20)],
+]
 
 # (zone, act) -> x at which the act ends; from the integration's script.lua `level_max_x`.
 LEVEL_MAX_X: dict[tuple[int, int], int] = {
@@ -79,6 +84,6 @@ class SonicReward:
 def make(cfg: Settings) -> RetroEnv:
     states = TRAIN_LEVELS if cfg.sonic_levels == "multi" and cfg.state is None else None
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)),
-                    combos=JUMP_ACTIONS if cfg.sonic_actions == "jump9" else SONIC_ACTIONS,
+                    combos={"run12": RUN_ACTIONS, "jump9": JUMP_ACTIONS, "retro7": SONIC_ACTIONS}[cfg.sonic_actions],
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,
                     states=states)

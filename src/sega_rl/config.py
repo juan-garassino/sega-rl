@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     sf_taken_weight: float = 0.5  # SEGARL_SF_TAKEN_WEIGHT=0.5 (<1 favours engaging over fleeing)
     sf_win_health_bonus: float = 1.0  # SEGARL_SF_WIN_HEALTH_BONUS=1.0 (round won: + this × health left)
     sonic_levels: Literal["single", "multi"] = "multi"  # SEGARL_SONIC_LEVELS=single (multi: 13 acts, 4 held out)
-    sonic_actions: Literal["jump9", "retro7"] = "jump9"  # SEGARL_SONIC_ACTIONS=retro7 (sonic-v2, sonic-multi-1 models)
+    sonic_actions: Literal["run12", "jump9", "retro7"] = "run12"  # SEGARL_SONIC_ACTIONS=jump9 (mac-sonic-1) or retro7 (older models)
     sonic_level_episodes: int = 2  # SEGARL_SONIC_LEVEL_EPISODES=2 (multi: games per level and eval)
     sonic_stall_secs: float = 30.0  # SEGARL_SONIC_STALL_SECS=30 (end a Sonic episode after this long without new ground)
     learning_rate: float | None = None  # SEGARL_LEARNING_RATE=1e-4 (None = per-game default)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sega_rl.envs.sonic import ALL_LEVELS, JUMP_ACTIONS, HELD_OUT, LEVEL_MAX_X, TRAIN_LEVELS, SONIC_ACTIONS, SonicReward
+from sega_rl.envs.sonic import ALL_LEVELS, JUMP_ACTIONS, RUN_ACTIONS, HELD_OUT, LEVEL_MAX_X, TRAIN_LEVELS, SONIC_ACTIONS, SonicReward
 
 
 def _info(x, lives=3, zone=0, act=0):
@@ -123,3 +123,18 @@ def test_stall_frames_from_config():
 def test_held_out_levels_are_never_trained_on():
     assert len(ALL_LEVELS) == 17 and len(HELD_OUT) == 4 and len(TRAIN_LEVELS) == 13
     assert not set(HELD_OUT) & set(TRAIN_LEVELS) and set(HELD_OUT) | set(TRAIN_LEVELS) == set(ALL_LEVELS)
+
+
+def test_long_runs_hold_a_direction_for_a_second():
+    from sega_rl.envs.common import RetroEnv
+    from test_envs_common import BUTTONS, _score_reward, _StubRetro
+
+    assert RUN_ACTIONS[:len(JUMP_ACTIONS)] == JUMP_ACTIONS
+    stub = _StubRetro()
+    env = RetroEnv("stub", None, _score_reward, combos=RUN_ACTIONS, obs_mode="frame", frame_skip=4, inner=stub)
+    for i in range(len(JUMP_ACTIONS), len(RUN_ACTIONS)):
+        env.reset()
+        stub.calls.clear()
+        env.step(i)
+        held = [c for c in stub.calls if c[BUTTONS.index("LEFT")] or c[BUTTONS.index("RIGHT")]]
+        assert len(stub.calls) >= 60 and len(held) == len(stub.calls)
