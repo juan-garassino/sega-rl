@@ -60,3 +60,22 @@ def test_gamma_and_rollout_length_apply_to_a_loaded_model():
     m = PPO("CnnPolicy", env, n_steps=8, batch_size=16, device="cpu")
     apply_hyperparameters(m, Settings(game="sf", gamma=0.997, n_steps=16, n_envs=2))
     assert m.gamma == 0.997 and m.rollout_buffer.gamma == 0.997 and m.n_steps == 16 and m.rollout_buffer.buffer_size == 16
+
+
+def test_adam_counters_leave_the_gpu_after_a_load():
+    from types import SimpleNamespace
+
+    import torch
+
+    from sega_rl.train import keep_counters_on_cpu
+
+    class _OnGpu(torch.Tensor):
+        moved = 0
+
+        def cpu(self):
+            _OnGpu.moved += 1
+            return torch.tensor(7.0)
+
+    state = {"a": {"step": torch.tensor(7.0).as_subclass(_OnGpu)}, "b": {}}  # "b" has not been updated yet
+    keep_counters_on_cpu(SimpleNamespace(policy=SimpleNamespace(optimizer=SimpleNamespace(state=state))))
+    assert _OnGpu.moved == 1 and state["a"]["step"].item() == 7.0 and state["b"] == {}

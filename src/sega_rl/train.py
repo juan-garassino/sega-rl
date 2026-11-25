@@ -53,6 +53,14 @@ def apply_hyperparameters(model: PPO, cfg: Settings) -> None:
                                    gamma=model.gamma, gae_lambda=model.gae_lambda, n_envs=b.n_envs)
 
 
+def keep_counters_on_cpu(model: PPO) -> None:
+    """Loading a checkpoint puts Adam's step counters on the GPU, and reading each one back there makes every weight
+    update wait: about 4 ms instead of 0.8 ms on Apple's GPU."""
+    for state in model.policy.optimizer.state.values():
+        if torch.is_tensor(state.get("step")):
+            state["step"] = state["step"].cpu()
+
+
 def build_model(cfg: Settings, env: VecEnv) -> PPO:
     params = dict(PPO_DEFAULTS)
     params["learning_rate"] = cfg.learning_rate or default_learning_rate(cfg.game)
@@ -192,6 +200,7 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
             logger.info("resuming from %s", resume_from)
             model = PPO.load(resume_from, env=env, device=cfg.device)
             apply_hyperparameters(model, cfg)
+            keep_counters_on_cpu(model)
         else:
             model = build_model(cfg, env)
         model.set_logger(_make_logger(run_dir))
