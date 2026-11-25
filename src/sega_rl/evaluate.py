@@ -34,7 +34,7 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
              max_steps: int | None = None, heartbeat: Callable[[], None] | None = None,
              deterministic: bool = True) -> EvalResult:
     """Episodes in one env, taking the likeliest action or sampling like training does (the training process hosts no emulator, so this is allowed)."""
-    if cfg.game == "sonic" and cfg.sonic_levels == "multi" and cfg.state is None:
+    if cfg.game == "sonic" and cfg.sonic_levels in ("multi", "all") and cfg.state is None:
         return run_levels_eval(model, cfg, video_path, max_steps, heartbeat, deterministic=deterministic)
     if cfg.game == "sf" and cfg.sf_states_dir is not None and cfg.state is None:
         return run_fights_eval(model, cfg, video_path, max_steps, heartbeat, deterministic=deterministic)
@@ -91,12 +91,15 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
 def run_levels_eval(model, cfg: Settings, video_path: Path | None = None, max_steps: int | None = None,
                     heartbeat: Callable[[], None] | None = None,
                     eval_fn: Callable[..., EvalResult] | None = None, deterministic: bool = True) -> EvalResult:
-    """Sonic: the 4 held-out levels (the score, with a video each) and 4 training levels (to spot memorising)."""
-    from sega_rl.envs.sonic import HELD_OUT, TRAIN_EVAL
+    """Sonic. "multi": the 4 held-out levels (the score, with a video each) and 4 training levels. "all": every level."""
+    from sega_rl.envs.sonic import ALL_LEVELS, HELD_OUT, TRAIN_EVAL
 
+    every = cfg.sonic_levels == "all"
+    levels = ALL_LEVELS if every else (*HELD_OUT, *TRAIN_EVAL)
+    filmed = TRAIN_EVAL if every else HELD_OUT
     results = {}
-    for level in (*HELD_OUT, *TRAIN_EVAL):
-        video = video_path.with_name(f"{video_path.stem}_{level}.mp4") if video_path and level in HELD_OUT else None
+    for level in levels:
+        video = video_path.with_name(f"{video_path.stem}_{level}.mp4") if video_path and level in filmed else None
         results[level] = (eval_fn or run_eval)(model, cfg.model_copy(update={"state": level}),
                                                cfg.sonic_level_episodes, video_path=video, max_steps=max_steps,
                                                heartbeat=heartbeat, deterministic=deterministic)
@@ -107,6 +110,9 @@ def run_levels_eval(model, cfg: Settings, video_path: Path | None = None, max_st
     def mean(levels, field) -> float:
         return float(np.mean([getattr(results[k], field) for k in levels]))
 
+    if every:
+        return EvalResult(win_rate=mean(levels, "win_rate"), mean_damage_dealt=0.0, mean_damage_taken=0.0,
+                          mean_return=mean(levels, "mean_return"), mean_progress=mean(levels, "mean_progress"))
     return EvalResult(win_rate=mean(HELD_OUT, "win_rate"), mean_damage_dealt=0.0, mean_damage_taken=0.0,
                       mean_return=mean(HELD_OUT, "mean_return"), mean_progress=mean(HELD_OUT, "mean_progress"),
                       train_win_rate=mean(TRAIN_EVAL, "win_rate"), train_progress=mean(TRAIN_EVAL, "mean_progress"))
@@ -118,12 +124,14 @@ def run_fights_eval(model, cfg: Settings, video_path: Path | None = None, max_st
     """Street Fighter: rounds won per opponent. Score = opponents never trained on; train_* = the others."""
     from sega_rl.envs.street_fighter import opponents
 
-    split = {"heldout": opponents(cfg, "heldout"), "train": opponents(cfg, "train")}
+    has_heldout = (cfg.sf_states_dir / "heldout").is_dir()
+    split = {"heldout": opponents(cfg, "heldout") if has_heldout else [], "train": opponents(cfg, "train")}
     per: dict[str, list[EvalResult]] = {"heldout": [], "train": []}
     for name, states in split.items():
         for state in states:
             who = Path(state).stem
-            video = video_path.with_name(f"{video_path.stem}_{who}.mp4") if video_path and name == "heldout" else None
+            filmed = name == "heldout" or not has_heldout
+            video = video_path.with_name(f"{video_path.stem}_{who}.mp4") if video_path and filmed else None
             r = (eval_fn or run_eval)(model, cfg.model_copy(update={"state": state}), cfg.sf_fight_episodes,
                                       video_path=video, max_steps=max_steps, heartbeat=heartbeat,
                                       deterministic=deterministic)
@@ -133,6 +141,10 @@ def run_fights_eval(model, cfg: Settings, video_path: Path | None = None, max_st
     def mean(results, field) -> float:
         return float(np.mean([getattr(r, field) for r in results]))
 
+    if not has_heldout:
+        return EvalResult(win_rate=mean(per["train"], "win_rate"), mean_damage_dealt=mean(per["train"], "mean_damage_dealt"),
+                          mean_damage_taken=mean(per["train"], "mean_damage_taken"),
+                          mean_return=mean(per["train"], "mean_return"), rounds_done=sum(r.rounds_done for r in per["train"]))
     return EvalResult(win_rate=mean(per["heldout"], "win_rate"), mean_damage_dealt=mean(per["heldout"], "mean_damage_dealt"),
                       mean_damage_taken=mean(per["heldout"], "mean_damage_taken"),
                       mean_return=mean(per["heldout"], "mean_return"), rounds_done=sum(r.rounds_done for r in per["heldout"]),

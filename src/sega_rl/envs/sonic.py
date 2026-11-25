@@ -82,7 +82,7 @@ class SonicReward:
 
 
 def make(cfg: Settings) -> RetroEnv:
-    states = TRAIN_LEVELS if cfg.sonic_levels == "multi" and cfg.state is None else None
+    states = {"multi": TRAIN_LEVELS, "all": ALL_LEVELS}.get(cfg.sonic_levels) if cfg.state is None else None
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)),
                     combos={"run12": RUN_ACTIONS, "jump9": JUMP_ACTIONS, "retro7": SONIC_ACTIONS}[cfg.sonic_actions],
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,

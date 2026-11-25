@@ -125,7 +125,7 @@ def test_sonic_score_comes_from_held_out_levels_but_best_model_from_training_lev
         return EvalResult(win_rate=0.25 if held else 0.75, mean_damage_dealt=0, mean_damage_taken=0, mean_return=1,
                           mean_progress=0.4 if held else 0.9)
 
-    r = run_levels_eval(None, Settings(game="sonic"), eval_fn=fake)
+    r = run_levels_eval(None, Settings(game="sonic", sonic_levels="multi"), eval_fn=fake)
     assert len(seen) == 8 and r.win_rate == 0.25 and r.train_win_rate == 0.75
     assert score("sonic", r) == (0.75, 0.9)
 
@@ -165,3 +165,31 @@ def test_sf_is_scored_on_opponents_it_never_trained_on(tmp_path):
     r = run_fights_eval(None, Settings(game="sf", sf_states_dir=tmp_path), eval_fn=fake)
     assert len(seen) == 3 and r.win_rate == 0.3 and r.train_win_rate == 0.8
     assert score("sf", r)[0] == 0.8  # the best model is never picked by the held-out fights
+
+
+def test_sonic_can_train_and_be_scored_on_every_level(tmp_path):
+    from sega_rl.envs.sonic import ALL_LEVELS
+    from sega_rl.evaluate import run_levels_eval
+
+    seen = []
+
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
+        seen.append(cfg.state)
+        return EvalResult(win_rate=0.5, mean_damage_dealt=0, mean_damage_taken=0, mean_return=1, mean_progress=0.6)
+
+    r = run_levels_eval(None, Settings(game="sonic"), eval_fn=fake)
+    assert seen == ALL_LEVELS and r.win_rate == 0.5 and math.isnan(r.train_win_rate)
+
+
+def test_sf_without_held_out_opponents_is_scored_on_the_ones_it_trains_on(tmp_path):
+    from sega_rl.evaluate import run_fights_eval
+
+    (tmp_path / "train").mkdir()
+    for n in ("Ken", "Guile"):
+        (tmp_path / "train" / f"{n}.state").touch()
+
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
+        return EvalResult(win_rate=0.7, mean_damage_dealt=1, mean_damage_taken=1, mean_return=1, rounds_done=4)
+
+    r = run_fights_eval(None, Settings(game="sf", sf_states_dir=tmp_path), eval_fn=fake)
+    assert r.win_rate == 0.7 and r.rounds_done == 8 and math.isnan(r.train_win_rate)

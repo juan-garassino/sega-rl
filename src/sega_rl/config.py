@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     sf_states_dir: Path | None = None  # SEGARL_SF_STATES_DIR=/data/fights (train/*.state, heldout/*.state: many opponents)
     sf_fight_episodes: int = 10  # SEGARL_SF_FIGHT_EPISODES=10 (with states: games per opponent and check)
     sf_win_health_bonus: float = 1.0  # SEGARL_SF_WIN_HEALTH_BONUS=1.0 (round won: + this × health left)
-    sonic_levels: Literal["single", "multi"] = "multi"  # SEGARL_SONIC_LEVELS=single (multi: 13 acts, 4 held out)
+    sonic_levels: Literal["single", "multi", "all"] = "all"  # SEGARL_SONIC_LEVELS=multi (multi: 13 acts, 4 held out; all: 17)
     sonic_actions: Literal["run12", "jump9", "retro7"] = "run12"  # SEGARL_SONIC_ACTIONS=jump9 (mac-sonic-1) or retro7 (older models)
     sonic_level_episodes: int = 2  # SEGARL_SONIC_LEVEL_EPISODES=2 (multi: games per level and eval)
     sonic_stall_secs: float = 30.0  # SEGARL_SONIC_STALL_SECS=30 (end a Sonic episode after this long without new ground)
