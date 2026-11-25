@@ -52,6 +52,8 @@ class Settings(BaseSettings):
     sonic_actions: Literal["run12", "jump9", "retro7"] = "run12"  # SEGARL_SONIC_ACTIONS=jump9 (mac-sonic-1) or retro7 (older models)
     sonic_level_episodes: int = 2  # SEGARL_SONIC_LEVEL_EPISODES=2 (multi: games per level and eval)
     sonic_stall_secs: float = 30.0  # SEGARL_SONIC_STALL_SECS=30 (end a Sonic episode after this long without new ground)
+    sonic_practice_prob: float = 0.5  # SEGARL_SONIC_PRACTICE_PROB=0.5 (games starting at a point of the level already reached)
+    weak_spots: bool = True  # SEGARL_WEAK_SPOTS=false (start more often on levels / opponents not beaten yet)
     learning_rate: float | None = None  # SEGARL_LEARNING_RATE=1e-4 (None = per-game default)
     frame_skip: int = 4  # SEGARL_FRAME_SKIP=4
     frame_stack: int = 4  # SEGARL_FRAME_STACK=4

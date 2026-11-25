@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sega_rl.config import Settings
 from sega_rl.envs.common import Move, RetroEnv
+from sega_rl.envs.starts import LevelPoints
 
 GAME_ID = "SonicTheHedgehog-Genesis-v0"
 DEFAULT_STATE = "GreenHillZone.Act1"
@@ -81,9 +82,17 @@ class SonicReward:
         return reward, complete or life_lost or stalled
 
 
+def level_fraction(info: dict) -> float | None:
+    """How far along its act a game is, 0 to 1 (None: unknown act)."""
+    end_x = LEVEL_MAX_X.get((info.get("zone", 0), info.get("act", 0)))
+    return None if end_x is None else min(1.0, info["x"] / end_x)
+
+
 def make(cfg: Settings) -> RetroEnv:
     states = {"multi": TRAIN_LEVELS, "all": ALL_LEVELS}.get(cfg.sonic_levels) if cfg.state is None else None
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)),
                     combos={"run12": RUN_ACTIONS, "jump9": JUMP_ACTIONS, "retro7": SONIC_ACTIONS}[cfg.sonic_actions],
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,
-                    states=states, log_dir=None if states is None else cfg.run_dir / "achievements")
+                    states=states, weak_spots=cfg.weak_spots, where=level_fraction,
+                    points=LevelPoints(cfg.run_dir / "points", cfg.sonic_practice_prob) if states and cfg.sonic_practice_prob else None,
+                    log_dir=None if states is None else cfg.run_dir / "achievements")

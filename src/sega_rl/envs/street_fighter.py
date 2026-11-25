@@ -133,6 +133,6 @@ def make(cfg: Settings) -> RetroEnv:
                       single_match=cfg.sf_states_dir is not None)
     combos = list(FIGHTER_MOVES.values()) if fighter else SF_ACTIONS if cfg.sf_actions == "discrete" else None
     states = opponents(cfg, "train") if cfg.state is None else None
-    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos, states=states,
+    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos, states=states, weak_spots=cfg.weak_spots,
                     log_dir=None if states is None else cfg.run_dir / "achievements",
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max)

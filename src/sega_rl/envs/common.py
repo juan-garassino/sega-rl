@@ -10,6 +10,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Discrete
 
+from sega_rl.envs.starts import LevelPoints, WeakSpots
 from sega_rl.monitoring.achievements import first
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,9 @@ class RetroEnv(gym.Env):
         noop_max: int = 0,
         states: list[str] | None = None,
         log_dir: Path | None = None,
+        weak_spots: bool = False,
+        points: LevelPoints | None = None,
+        where: Callable[[dict], float | None] | None = None,
     ):
         super().__init__()
         cv2.setNumThreads(1)  # every env process would otherwise open a thread per host core
@@ -83,7 +87,10 @@ class RetroEnv(gym.Env):
         self.max_steps = max_steps
         self.noop_max = noop_max
         self.log_dir, self.start = log_dir, None  # where to note "first finished / first beat"; what this game started from
-        self.states = states  # each game starts on one of these, drawn at random
+        self.states = states  # each game starts on one of these, drawn at random (or more often where it is weak)
+        self.mix = WeakSpots(states) if states and weak_spots else None
+        self.points, self.where = points, where  # practice starts along a level; how far along (0..1) an info is
+        self.practice = False
         self.buttons: list[str] = list(self.game.buttons)
         self.combos = combos
         if combos is None:
@@ -125,14 +132,18 @@ class RetroEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         if self.states:
-            self.start = self.states[int(self.np_random.integers(len(self.states)))]
-            load_start(self.game, self.start)
+            self.start = self.mix.pick(self.np_random) if self.mix else self.states[int(self.np_random.integers(len(self.states)))]
+            point = self.points.pick(self.np_random, self.start) if self.points else None
+            self.practice = point is not None
+            load_start(self.game, str(point) if point else self.start)
         frame, info = self.game.reset(seed=seed)
         if hasattr(self.reward_fn, "reset"):
             self.reward_fn.reset()
         # Random no-op start: otherwise every episode (and every parallel env) replays the same savestate.
         noop = np.zeros(len(self.buttons), np.int8)
-        for _ in range(int(self.np_random.integers(0, self.noop_max + 1)) if self.noop_max else 0):
+        # (A practice start is mid-run: standing still there could kill it, so only a short wait.)
+        wait = min(self.noop_max, 4) if self.practice else self.noop_max
+        for _ in range(int(self.np_random.integers(0, wait + 1)) if wait else 0):
             frame, _, term, trunc, info = self.game.step(noop)
             if term or trunc:
                 frame, info = self.game.reset()
@@ -181,7 +192,17 @@ class RetroEnv(gym.Env):
         info["buttons"] = buttons
         if self.log_dir is not None:
             self._celebrate(info)
+        if self.start is not None:
+            self._remember(info, terminated or truncated)
         return self._observe(preprocess(pooled)), float(total), terminated, truncated, info
+
+    def _remember(self, info: dict, over: bool) -> None:
+        """Keep this point of the level for practice; when the game ends, note whether this start was beaten."""
+        if not over and self.points is not None and (at := self.where(info)) is not None:
+            self.points.reached(self.start, at, self.game.em.get_state)
+        if over and self.mix is not None and not self.practice:
+            beaten = info.get("level_complete") or info.get("matches_won", 0) > info.get("enemy_matches_won", 0)
+            self.mix.result(self.start, bool(beaten))
 
     def _celebrate(self, info: dict) -> None:
         """Note the first time any game finishes this level or wins a match against this opponent."""
@@ -189,7 +210,8 @@ class RetroEnv(gym.Env):
             return
         name = Path(self.start).name.removesuffix(".state")
         if info.get("level_complete"):
-            first(self.log_dir, f"finish_{name}", f"finished {name}")
+            kind = "practice_finish" if self.practice else "finish"  # from partway is not the same as from the start
+            first(self.log_dir, f"{kind}_{name}", f"finished {name}" + (" from partway" if self.practice else ""))
         if info.get("matches_won", 0) >= 2 and info.get("enemy_matches_won", 0) < 2:
             first(self.log_dir, f"win_{name}", f"won a match against {name}")
 

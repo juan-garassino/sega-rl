@@ -83,7 +83,7 @@ def test_sonic_rom_smoke():
     env = sonic.make(Settings(game="sonic"))
     try:
         env.reset(seed=0)
-        assert env.action_space.n == 7
+        assert env.action_space.n == 12
         for _ in range(50):
             *_, info = env.step(2)  # hold RIGHT
         assert info["max_x"] > 80

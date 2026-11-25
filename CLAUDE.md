@@ -12,6 +12,7 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | `envs/common.py` | `RetroEnv`: gray 84×84, frame skip + max-pool, frame/delta obs, moves (held buttons or timed sequences), random start states, truncation, `info["buttons"]` |
 | `envs/street_fighter.py` | `FIGHTER_MOVES` (default: normals, specials, throws, jump-ins, both directions; `SEGARL_SF_ACTIONS=discrete` = 21 plain moves, `multibinary` = upstream), `SFReward` (weighted damage diff/176, stale repeated hits pay less, round ± health left) |
 | `envs/sonic.py` | `SonicReward` (new ground /100, +50 at act end; ends on lost life or 30 s without new ground), `RUN_ACTIONS` (default, adds one-second runs; `SEGARL_SONIC_ACTIONS=jump9|retro7` for older models), `LEVEL_MAX_X`, `ALL_LEVELS` (17, default) or `SEGARL_SONIC_LEVELS=multi`: 13 trained, 4 `HELD_OUT` |
+| `envs/starts.py` | training starts: `WeakSpots` (more games on levels / opponents not beaten) and `LevelPoints` (Sonic practice from states reached along a level, in `runs/<id>/points/`: ROM-like, never in git); checks never use either |
 | `envs/airstriker.py` | score reward, test/smoke game |
 | `envs/factory.py` | `make_vec_env`: SubprocVecEnv(forkserver) → VecMonitor → VecFrameStack(4) |
 | `monitoring/health.py` | `HealthMonitor` rules, `HealthCallback` (health.json, watchdog thread → exit 3 on stall) |
