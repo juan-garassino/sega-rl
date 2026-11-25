@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
 from typing import Literal
 
 from sega_rl.config import Settings
-from sega_rl.envs.common import RetroEnv
+from sega_rl.envs.common import Move, RetroEnv
 
 GAME_ID = "StreetFighterIISpecialChampionEdition-Genesis-v0"
 DEFAULT_STATE = "Champion.Level1.RyuVsGuile"
@@ -20,18 +21,67 @@ SF_ACTIONS: list[list[str]] = [
 ]
 
 
+def _mirror(move: Move) -> Move:
+    flip = {"LEFT": "RIGHT", "RIGHT": "LEFT"}
+    return [([flip.get(b, b) for b in names], n) for names, n in move]
+
+
+# Facing right. The game data has no positions, so every directional move exists both ways and the CNN picks.
+_RIGHT_MOVES: dict[str, Move] = {
+    "hadouken": [(["DOWN"], 3), (["DOWN", "RIGHT"], 3), (["RIGHT"], 2), (["RIGHT", "Y"], 4)],
+    "shoryuken": [(["RIGHT"], 3), (["DOWN"], 3), (["DOWN", "RIGHT"], 2), (["DOWN", "RIGHT", "Z"], 4)],
+    "tatsumaki": [(["DOWN"], 3), (["DOWN", "LEFT"], 3), (["LEFT"], 2), (["LEFT", "B"], 4)],
+    "forward_hp": [(["RIGHT", "Z"], 4)],  # a throw when close
+    "forward_hk": [(["RIGHT", "C"], 4)],
+    "jump_kick": [(["UP", "RIGHT"], 4), ([], 16), (["C"], 6)],
+    "jump_punch": [(["UP", "RIGHT"], 4), ([], 16), (["Z"], 6)],
+}
+FIGHTER_MOVES: dict[str, Move] = {
+    "idle": [], "left": ["LEFT"], "right": ["RIGHT"], "crouch": ["DOWN"],
+    "block_low_left": ["DOWN", "LEFT"], "block_low_right": ["DOWN", "RIGHT"],
+    "up": ["UP"], "jump_left": ["UP", "LEFT"], "jump_right": ["UP", "RIGHT"],
+    "lp": ["X"], "mp": ["Y"], "hp": ["Z"], "lk": ["A"], "mk": ["B"], "hk": ["C"],
+    "low_mp": ["DOWN", "Y"], "uppercut": ["DOWN", "Z"], "low_lk": ["DOWN", "A"], "low_mk": ["DOWN", "B"],
+    "sweep": ["DOWN", "C"],
+    **{f"{name}_right": m for name, m in _RIGHT_MOVES.items()},
+    **{f"{name}_left": _mirror(m) for name, m in _RIGHT_MOVES.items()},
+}
+_MOVEMENT = {"idle", "left", "right", "crouch", "block_low_left", "block_low_right", "up", "jump_left", "jump_right"}
+FIGHTER_ATTACKS = frozenset(i for i, name in enumerate(FIGHTER_MOVES) if name not in _MOVEMENT)
+
+
 class SFReward:
-    """Shaped: (w_d·dealt − w_t·taken)/176, +1 round won, −1 round lost. Score: upstream score delta."""
+    """Shaped: (w_d·dealt − w_t·taken)/176, round won +1 (+health left), lost −1. Score: upstream score delta.
+
+    With `attacks`, landing a move that already landed in the last 4 hits pays half as much each time (min ¼),
+    so one safe poke is not the best plan. `info["damage_dealt"]` always reports the real damage.
+    """
 
     def __init__(self, mode: Literal["shaped", "score"] = "shaped", dealt_weight: float = 1.0,
-                 taken_weight: float = 1.0):
+                 taken_weight: float = 1.0, win_health_bonus: float = 0.0,
+                 attacks: frozenset[int] = frozenset()):
         self.mode = mode
+        self.win_health_bonus = win_health_bonus
+        self.attacks = attacks
         self.dealt_weight = dealt_weight
         self.taken_weight = taken_weight
         self.reset()
 
     def reset(self) -> None:
         self.between_rounds = False
+        self.health = MAX_HEALTH
+        self.use: tuple[int, int] | None = None  # (move, move_id) of the last attack chosen
+        self.paid_use: tuple[int, int] | None = None  # the use whose freshness is already set
+        self.freshness = 1.0
+        self.landed: deque[int] = deque(maxlen=4)
+
+    def _freshness(self) -> float:
+        """Set once per use of a move: its damage may drain over several frames."""
+        if self.use is not None and self.use != self.paid_use:
+            self.freshness = max(0.25, 0.5 ** self.landed.count(self.use[0]))
+            self.landed.append(self.use[0])
+            self.paid_use = self.use
+        return self.freshness
 
     def __call__(self, prev: dict, info: dict) -> tuple[float, bool]:
         if not prev:
@@ -43,6 +93,11 @@ class SFReward:
         taken = max(0, max(0, prev["health"]) - max(0, info["health"]))
         if self.between_rounds or cleared:
             dealt = taken = 0
+        elif info["health"] > 0:
+            self.health = info["health"]  # what is left when the KO lands; the bars are cleared before the win is counted
+        if info.get("move") in self.attacks:
+            self.use = (info["move"], info["move_id"])
+        paid = dealt * self._freshness() if dealt and self.attacks else dealt
         won = info["matches_won"] > prev["matches_won"]
         lost = info["enemy_matches_won"] > prev["enemy_matches_won"]
         if won or lost:
@@ -54,12 +109,15 @@ class SFReward:
         info["round_won"] = True if won else False if lost else None
         if self.mode == "score":
             return float(info["score"] - prev["score"]), False
-        shaped = (self.dealt_weight * dealt - self.taken_weight * taken) / MAX_HEALTH
-        return shaped + (1.0 if won else 0.0) - (1.0 if lost else 0.0), False
+        shaped = (self.dealt_weight * paid - self.taken_weight * taken) / MAX_HEALTH
+        bonus = 1.0 + self.win_health_bonus * self.health / MAX_HEALTH
+        return shaped + (bonus if won else 0.0) - (1.0 if lost else 0.0), False
 
 
 def make(cfg: Settings) -> RetroEnv:
-    reward = SFReward(cfg.reward_mode, dealt_weight=cfg.sf_dealt_weight, taken_weight=cfg.sf_taken_weight)
-    combos = SF_ACTIONS if cfg.sf_actions == "discrete" else None
+    fighter = cfg.sf_actions == "fighter"
+    reward = SFReward(cfg.reward_mode, dealt_weight=cfg.sf_dealt_weight, taken_weight=cfg.sf_taken_weight,
+                      win_health_bonus=cfg.sf_win_health_bonus, attacks=FIGHTER_ATTACKS if fighter else frozenset())
+    combos = list(FIGHTER_MOVES.values()) if fighter else SF_ACTIONS if cfg.sf_actions == "discrete" else None
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos,
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max)

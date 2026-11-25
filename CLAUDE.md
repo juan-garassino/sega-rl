@@ -9,19 +9,20 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | Module | Purpose |
 |---|---|
 | `config.py` | `Settings` (`SEGARL_*`), per-game defaults (`default_total_steps`, `default_max_eur`), `hours_budget` (EUR cap ÷ pod USD/h) |
-| `envs/common.py` | `RetroEnv`: gray 84×84, frame skip + max-pool, frame/delta obs, button combos, truncation, `info["buttons"]` |
-| `envs/street_fighter.py` | `SF_ACTIONS` (21 moves, default; `SEGARL_SF_ACTIONS=multibinary` = upstream), `SFReward` (weighted damage diff/176 ± round) |
-| `envs/sonic.py` | `SonicReward` (new ground /100, +10 at act end; ends on lost life or 30 s without new ground), `SONIC_ACTIONS`, `LEVEL_MAX_X` |
+| `envs/common.py` | `RetroEnv`: gray 84×84, frame skip + max-pool, frame/delta obs, moves (held buttons or timed sequences), random start states, truncation, `info["buttons"]` |
+| `envs/street_fighter.py` | `FIGHTER_MOVES` (default: normals, specials, throws, jump-ins, both directions; `SEGARL_SF_ACTIONS=discrete` = 21 plain moves, `multibinary` = upstream), `SFReward` (weighted damage diff/176, stale repeated hits pay less, round ± health left) |
+| `envs/sonic.py` | `SonicReward` (new ground /100, +10 at act end; ends on lost life or 30 s without new ground), `SONIC_ACTIONS`, `LEVEL_MAX_X`, `TRAIN_LEVELS` (13) / `HELD_OUT` (4, never trained on) |
 | `envs/airstriker.py` | score reward, test/smoke game |
 | `envs/factory.py` | `make_vec_env`: SubprocVecEnv(forkserver) → VecMonitor → VecFrameStack(4) |
 | `monitoring/health.py` | `HealthMonitor` rules, `HealthCallback` (health.json, watchdog thread → exit 3 on stall) |
 | `monitoring/mlflow_tracking.py` | no-op unless `MLFLOW_TRACKING_URI`; logging only after a successful `start()`; SB3 KVWriter |
-| `monitoring/video.py` | mp4 writer |
-| `evaluate.py` | `run_eval` (deterministic, in-process), `EvalCallback` (video, best_model.zip, best.json) |
+| `monitoring/video.py` | mp4 writer, 3x enlarged |
+| `evaluate.py` | `run_eval` (deterministic, in-process), `run_levels_eval` (Sonic: score = held-out levels), `EvalCallback` (video, best_model.zip, best.json) |
+| `bench.py` | `sega-rl bench` (pod only): emulator vs update time per thread count, damage of every SF move → bench.json, moves.mp4 |
 | `train.py` | `run()`: resume, callbacks (checkpoints, health, eval, budget), env-crash handling, DONE marker |
 | `tune.py` | Optuna, upstream search space → best_params.json (`SEGARL_PARAMS_FILE`) |
 | `status.py` | `sega-rl status <run>` (live state) and `sega-rl videos <run>` (download eval replays) via MLflow |
-| `cli.py` | `sega-rl train|tune|eval|smoke|status|check-rom|import-roms` |
+| `cli.py` | `sega-rl train|tune|eval|bench|smoke|status|check-rom|import-roms` |
 
 `runpod/`: `Dockerfile.cpu` (slim, CPU torch from the lock — CPU pods, `:cpu` tag), `Dockerfile` (CUDA 12.8, torch 2.14.1 cu126 — GPU pods, `:latest`), `entrypoint.sh`
 (lifecycle, see runpod/README.md), `scripts/pod_self.sh` (cost / self-terminate with retries).

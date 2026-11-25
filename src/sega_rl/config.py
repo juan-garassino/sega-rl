@@ -41,9 +41,12 @@ class Settings(BaseSettings):
     n_envs: int = 16  # SEGARL_N_ENVS=16
     obs_mode: Literal["frame", "delta"] = "frame"  # SEGARL_OBS_MODE=delta
     reward_mode: Literal["shaped", "score"] = "shaped"  # SEGARL_REWARD_MODE=score
-    sf_actions: Literal["discrete", "multibinary"] = "discrete"  # SEGARL_SF_ACTIONS=multibinary (upstream)
+    sf_actions: Literal["fighter", "discrete", "multibinary"] = "fighter"  # SEGARL_SF_ACTIONS=discrete (no specials)
     sf_dealt_weight: float = 1.0  # SEGARL_SF_DEALT_WEIGHT=1.0
     sf_taken_weight: float = 0.5  # SEGARL_SF_TAKEN_WEIGHT=0.5 (<1 favours engaging over fleeing)
+    sf_win_health_bonus: float = 1.0  # SEGARL_SF_WIN_HEALTH_BONUS=1.0 (round won: + this × health left)
+    sonic_levels: Literal["single", "multi"] = "multi"  # SEGARL_SONIC_LEVELS=single (multi: 13 acts, 4 held out)
+    sonic_level_episodes: int = 2  # SEGARL_SONIC_LEVEL_EPISODES=2 (multi: games per level and eval)
     sonic_stall_secs: float = 30.0  # SEGARL_SONIC_STALL_SECS=30 (end a Sonic episode after this long without new ground)
     learning_rate: float | None = None  # SEGARL_LEARNING_RATE=1e-4 (None = per-game default)
     frame_skip: int = 4  # SEGARL_FRAME_SKIP=4

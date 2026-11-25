@@ -16,6 +16,9 @@ RewardFn = Callable[[dict, dict], tuple[float, bool]]
 # Per-frame events a reward fn may emit; merged across skipped frames so none is lost.
 SUM_KEYS = ("damage_dealt", "damage_taken")
 
+# A move is buttons held for one agent step, or a timed sequence of (buttons, raw frames).
+Move = list[str] | list[tuple[list[str], int]]
+
 
 def preprocess(frame: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -45,12 +48,13 @@ class RetroEnv(gym.Env):
         game_id: str,
         state: str | None,
         reward_fn: RewardFn,
-        combos: list[list[str]] | None,
+        combos: list[Move] | None,
         obs_mode: Literal["frame", "delta"],
         frame_skip: int,
         inner: gym.Env | None = None,
         max_steps: int | None = None,
         noop_max: int = 0,
+        states: list[str] | None = None,
     ):
         super().__init__()
         self.game = inner if inner is not None else _make_retro(game_id, state)
@@ -59,13 +63,14 @@ class RetroEnv(gym.Env):
         self.frame_skip = frame_skip
         self.max_steps = max_steps
         self.noop_max = noop_max
+        self.states = states  # each game starts on one of these, drawn at random
         self.buttons: list[str] = list(self.game.buttons)
         self.combos = combos
         if combos is None:
             self.action_space = self.game.action_space
         else:
             self.action_space = Discrete(len(combos))
-            self._combo_vecs = [self._buttons_vec(c) for c in combos]
+            self._moves = [self._move(c) for c in combos]
         self.observation_space = Box(0, 255, (84, 84, 1), np.uint8)
         self.last_raw: np.ndarray | None = None
         self._prev_obs: np.ndarray | None = None
@@ -78,10 +83,16 @@ class RetroEnv(gym.Env):
             vec[self.buttons.index(n)] = 1
         return vec
 
-    def _to_buttons(self, action) -> np.ndarray:
-        if self.combos is not None:
-            return self._combo_vecs[int(action)]
-        return np.asarray(action, dtype=np.int8)
+    def _move(self, move: Move) -> list[tuple[np.ndarray, int]]:
+        if move and isinstance(move[0], tuple):
+            return [(self._buttons_vec(names), frames) for names, frames in move]
+        return [(self._buttons_vec(move), self.frame_skip)]
+
+    def _frames(self, action) -> list[np.ndarray]:
+        """The buttons to hold on each raw frame of this action."""
+        if self.combos is None:
+            return [np.asarray(action, dtype=np.int8)] * self.frame_skip
+        return [vec for vec, n in self._moves[int(action)] for _ in range(n)]
 
     def _observe(self, proc: np.ndarray) -> np.ndarray:
         if self.obs_mode == "delta":
@@ -93,6 +104,8 @@ class RetroEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
+        if self.states:
+            self.game.load_state(self.states[int(self.np_random.integers(len(self.states)))])
         frame, info = self.game.reset(seed=seed)
         if hasattr(self.reward_fn, "reset"):
             self.reward_fn.reset()
@@ -109,15 +122,17 @@ class RetroEnv(gym.Env):
         return self._observe(preprocess(frame)), dict(info)
 
     def step(self, action):
-        buttons = self._to_buttons(action)
+        move = None if self.combos is None else int(action)
         total, terminated, truncated = 0.0, False, False
         frames: list[np.ndarray] = []
         info: dict = {}
         sums: dict[str, float] = {}
         round_won, level_complete = None, False
-        for _ in range(self.frame_skip):
+        for buttons in self._frames(action):
             frame, _, term, trunc, info = self.game.step(buttons)
             info = dict(info)
+            if move is not None:
+                info["move"], info["move_id"] = move, self._steps
             r, extra_term = self.reward_fn(self._prev_info, info)
             self._prev_info = info
             for k in SUM_KEYS:
