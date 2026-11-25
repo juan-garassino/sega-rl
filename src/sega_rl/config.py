@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     sf_taken_weight: float = 0.5  # SEGARL_SF_TAKEN_WEIGHT=0.5 (<1 favours engaging over fleeing)
     sf_states_dir: Path | None = None  # SEGARL_SF_STATES_DIR=/data/fights (train/*.state, heldout/*.state: many opponents)
     sf_fight_episodes: int = 10  # SEGARL_SF_FIGHT_EPISODES=10 (with states: games per opponent and check)
+    sf_skip_busy: bool = True  # SEGARL_SF_SKIP_BUSY=false (up to mac-sf-5: also asks for a choice while Ryu cannot act)
     sf_stale: bool = False  # SEGARL_SF_STALE=true (repeating a hit pays less; hidden from the network, so off)
     sf_win_health_bonus: float = 1.0  # SEGARL_SF_WIN_HEALTH_BONUS=1.0 (round won: + this × health left)
     sonic_levels: Literal["single", "multi", "all"] = "all"  # SEGARL_SONIC_LEVELS=multi (multi: 13 acts, 4 held out; all: 17)
@@ -89,6 +90,11 @@ class Settings(BaseSettings):
     fps_warn_frac: float = 0.5  # SEGARL_FPS_WARN_FRAC=0.5
     fps_zero_secs: float = 300.0  # SEGARL_FPS_ZERO_SECS=300
     button_spam_frac: float = 0.9  # SEGARL_BUTTON_SPAM_FRAC=0.9
+
+    @property
+    def vec_stack(self) -> int:
+        """Frames the vec-env stacks: none when the game keeps its own history."""
+        return 1 if self.game == "sf" and self.sf_skip_busy else self.frame_stack
 
     @property
     def steps(self) -> int:

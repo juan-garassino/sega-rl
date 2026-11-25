@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+from collections import deque
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -23,6 +24,10 @@ SUM_KEYS = ("damage_dealt", "damage_taken")
 
 # A move is buttons held for one agent step, or a timed sequence of (buttons, raw frames).
 Move = list[str] | list[tuple[list[str], int]]
+
+
+HISTORY_GAP = 4  # game frames between the frames of an observation
+MAX_WAIT = 900  # game frames; a round's end and the next one's intro fit
 
 
 def preprocess(frame: np.ndarray) -> np.ndarray:
@@ -77,6 +82,8 @@ class RetroEnv(gym.Env):
         weak_spots: bool = False,
         points: LevelPoints | None = None,
         where: Callable[[dict], tuple[int, int] | None] | None = None,
+        busy: Callable[[np.ndarray], bool] | None = None,
+        history: int = 1,
     ):
         super().__init__()
         cv2.setNumThreads(1)  # every env process would otherwise open a thread per host core
@@ -91,6 +98,9 @@ class RetroEnv(gym.Env):
         self.mix = WeakSpots(states) if states and weak_spots else None
         self.points, self.where = points, where  # practice starts in a level; the place an info is at
         self.practice = False
+        self.busy = busy  # (RAM) -> the player cannot act: such frames pass by themselves, without asking for a choice
+        self.history = history  # frames in an observation, one per HISTORY_GAP game frames (1: the vec-env stacks decisions)
+        self.film: list[np.ndarray] = []  # what the last step looked like, one frame per HISTORY_GAP
         self.buttons: list[str] = list(self.game.buttons)
         self.combos = combos
         if combos is None:
@@ -98,7 +108,7 @@ class RetroEnv(gym.Env):
         else:
             self.action_space = Discrete(len(combos))
             self._moves = [self._move(c) for c in combos]
-        self.observation_space = Box(0, 255, (84, 84, 1), np.uint8)
+        self.observation_space = Box(0, 255, (84, 84, history), np.uint8)
         self.last_raw: np.ndarray | None = None
         self._prev_obs: np.ndarray | None = None
         self._prev_info: dict = {}
@@ -151,6 +161,10 @@ class RetroEnv(gym.Env):
         self._prev_obs = None
         self._steps = 0
         self.last_raw = frame
+        if self.history > 1:
+            self._past = deque([np.zeros((84, 84, 1), np.uint8)] * self.history, self.history)
+            self._past.append(preprocess(frame))
+            return np.concatenate(self._past, -1), dict(info)
         return self._observe(preprocess(frame)), dict(info)
 
     def step(self, action):
@@ -160,7 +174,8 @@ class RetroEnv(gym.Env):
         info: dict = {}
         sums: dict[str, float] = {}
         round_won, level_complete = None, False
-        for buttons in self._frames(action):
+        self.film = []
+        for buttons in self._with_waiting(self._frames(action)):
             frame, _, term, trunc, info = self.game.step(buttons)
             info = dict(info)
             if move is not None:
@@ -175,6 +190,9 @@ class RetroEnv(gym.Env):
             level_complete = level_complete or bool(info.get("level_complete"))
             total += r
             frames.append(frame)
+            if self.history > 1 and len(frames) % HISTORY_GAP == 0:
+                self._past.append(preprocess(np.maximum(frames[-2], frames[-1])))
+                self.film.append(frame)
             terminated = terminated or term or extra_term
             truncated = truncated or trunc
             if terminated or truncated:
@@ -194,7 +212,21 @@ class RetroEnv(gym.Env):
             self._celebrate(info)
         if self.start is not None:
             self._remember(info, terminated or truncated)
+        if self.history > 1:
+            if len(frames) % HISTORY_GAP:
+                self._past.append(preprocess(pooled))
+                self.film.append(frames[-1])
+            return np.concatenate(self._past, -1), float(total), terminated, truncated, info
         return self._observe(preprocess(pooled)), float(total), terminated, truncated, info
+
+    def _with_waiting(self, frames: list[np.ndarray]):
+        """This move's buttons, then neutral frames for as long as the player cannot act."""
+        yield from frames
+        neutral = np.zeros(len(self.buttons), np.int8)
+        for _ in range(MAX_WAIT if self.busy is not None else 0):
+            if not self.busy(self.game.get_ram()):
+                return
+            yield neutral
 
     def _remember(self, info: dict, over: bool) -> None:
         """Keep this point of the level for practice; when the game ends, note whether this start was beaten."""

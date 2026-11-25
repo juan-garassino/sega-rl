@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections import deque
 from typing import Literal
 
+import numpy as np
+
 from sega_rl.config import Settings
 from sega_rl.envs.common import Move, RetroEnv
 
@@ -116,6 +118,23 @@ class SFReward:
         return shaped + (bonus if won else 0.0) - (1.0 if lost else 0.0), over
 
 
+# Found by trying different buttons from the same instant: in 61% of the moments of a fight nothing Ryu pressed changed
+# anything within 26 frames, and the state byte says why.
+PLAYER_STATE, ROUND_CLOCK = 0x8002, 0x972B  # in stable-retro's get_ram()
+LOCKED = {10, 12, 14, 20}  # a normal attack, a special, being hit, knocked down
+CLOCK_FULL = 0x99  # the clock shows 99 until the round has started
+
+
+class Busy:
+    """Can Ryu act right now? Choices made while he cannot are noise: they teach nothing and drown the ones that matter."""
+
+    def __init__(self, reward: SFReward):
+        self.reward = reward
+
+    def __call__(self, ram: np.ndarray) -> bool:
+        return self.reward.between_rounds or int(ram[ROUND_CLOCK]) == CLOCK_FULL or int(ram[PLAYER_STATE]) in LOCKED
+
+
 def opponents(cfg: Settings, split: str) -> list[str] | None:
     """Start states of the opponents to train on ("train") or only test on ("heldout"), from cfg.sf_states_dir."""
     if cfg.sf_states_dir is None:
@@ -134,5 +153,6 @@ def make(cfg: Settings) -> RetroEnv:
     combos = list(FIGHTER_MOVES.values()) if fighter else SF_ACTIONS if cfg.sf_actions == "discrete" else None
     states = opponents(cfg, "train") if cfg.state is None else None
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos, states=states, weak_spots=cfg.weak_spots,
+                    busy=Busy(reward) if cfg.sf_skip_busy else None, history=cfg.frame_stack if cfg.sf_skip_busy else 1,
                     log_dir=None if states is None else cfg.run_dir / "achievements",
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max)

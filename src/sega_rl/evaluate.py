@@ -39,7 +39,7 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
     if cfg.game == "sf" and cfg.sf_states_dir is not None and cfg.state is None:
         return run_fights_eval(model, cfg, video_path, max_steps, heartbeat, deterministic=deterministic)
     max_steps = max_steps or cfg.eval_max_steps
-    venv = VecFrameStack(DummyVecEnv([make_single(cfg, rank=10_000)]), cfg.frame_stack, channels_order="last")
+    venv = VecFrameStack(DummyVecEnv([make_single(cfg, rank=10_000)]), cfg.vec_stack, channels_order="last")
     raw_env = venv.venv.envs[0]
     rounds_won = rounds_done = levels_done = 0
     returns, dealt, taken, progress = [], [], [], []
@@ -62,7 +62,7 @@ def run_eval(model, cfg: Settings, episodes: int, video_path: Path | None = None
                     rounds_done += 1
                     rounds_won += int(last_info["round_won"])
                 if frames is not None:
-                    frames.append(raw_env.render())
+                    frames.extend(raw_env.unwrapped.film or [raw_env.render()])
                 if done[0]:
                     break
             levels_done += int(bool(last_info.get("level_complete")))

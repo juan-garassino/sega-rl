@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from sega_rl.envs.street_fighter import FIGHTER_ATTACKS, FIGHTER_MOVES, SFReward
@@ -227,3 +228,20 @@ def test_standing_still_deals_no_damage_on_the_real_game():
         env.close()
     assert dealt == 0
     assert taken == 2 * 176
+
+
+def test_ryu_is_busy_while_locked_between_rounds_and_before_the_clock_starts():
+    from sega_rl.envs import street_fighter as sf
+
+    reward = sf.SFReward()
+    busy = sf.Busy(reward)
+    ram = np.zeros(65536, np.uint8)
+    ram[sf.ROUND_CLOCK] = 0x87
+    assert not busy(ram)
+    for state, locked in ((0, False), (2, False), (4, False), (8, False), (10, True), (12, True), (14, True), (20, True)):
+        ram[sf.PLAYER_STATE] = state
+        assert busy(ram) is locked
+    ram[sf.PLAYER_STATE], ram[sf.ROUND_CLOCK] = 0, 0x99
+    assert busy(ram)
+    ram[sf.ROUND_CLOCK], reward.between_rounds = 0x50, True
+    assert busy(ram)
