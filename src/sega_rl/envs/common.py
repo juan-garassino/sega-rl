@@ -27,7 +27,7 @@ Move = list[str] | list[tuple[list[str], int]]
 
 
 HISTORY_GAP = 4  # game frames between the frames of an observation
-MAX_WAIT = 900  # game frames; a round's end and the next one's intro fit
+MAX_WAIT = 120  # game frames: all games step together, so one sitting through a round change must not hold the rest
 
 
 def preprocess(frame: np.ndarray) -> np.ndarray:

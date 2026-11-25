@@ -158,3 +158,14 @@ def test_a_new_place_restarts_the_stall_clock():
     ended = [r(info, {**info, "y": 100 + 40 * k})[1] for k in range(1, 20)]
     assert not any(ended)  # climbing steadily is not being stuck
     assert any(r(info, {**info, "y": 860})[1] for _ in range(6))
+
+
+def test_rings_pay_a_little_up_to_a_cap_and_a_hit_costs():
+    r = SonicReward(ring_pay=0.05, death=3.0)
+    info = {"x": 100, "y": 5, "lives": 3, "zone": 0, "act": 0, "rings": 0}
+    assert r({}, dict(info))[0] == 0.0
+    assert r(info, {**info, "rings": 3})[0] == pytest.approx(0.15)
+    assert r({**info, "rings": 3}, dict(info))[0] == pytest.approx(-0.5)  # hit: worth more than the rings were
+    total = sum(r({**info, "rings": k}, {**info, "rings": k + 1})[0] for k in range(100))
+    assert total == pytest.approx(0.05 * 37)  # 40 a game, 3 already paid
+    assert r({**info, "rings": 9}, {**info, "rings": 0, "lives": 2})[0] == pytest.approx(-3.0)

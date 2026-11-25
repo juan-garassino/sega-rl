@@ -26,7 +26,8 @@ SHORT_ACTIONS: list[Move] = JUMP_ACTIONS + [
 ]
 CELL = 128  # pixels: a place, for the exploring pay
 CELL_PAY = 0.2  # per new place in a game; 100 pixels of new ground pay 1
-DEATH = 1.0  # taken for a lost life, more than falling into a pit pays in new places
+RINGS_MAX = 40  # rings that pay in one game, so nobody stays to collect
+HIT = 10  # rings' worth taken for being hit: with none left, the next hit kills
 
 # (zone, act) -> x at which the act ends; from the integration's script.lua `level_max_x`.
 LEVEL_MAX_X: dict[tuple[int, int], int] = {
@@ -62,15 +63,24 @@ class SonicReward:
     front of an obstacle earns nothing, so a stuck episode only burns compute (eval videos showed 4 min stuck).
     """
 
-    def __init__(self, stall_frames: int | None = None, cell_pay: float = 0.0, death: float = 0.0):
-        self.stall_frames, self.cell_pay, self.death = stall_frames, cell_pay, death
+    def __init__(self, stall_frames: int | None = None, cell_pay: float = 0.0, death: float = 0.0, ring_pay: float = 0.0):
+        self.stall_frames, self.cell_pay, self.death, self.ring_pay = stall_frames, cell_pay, death, ring_pay
         self.reset()
 
     def reset(self) -> None:
         self.start_x: int | None = None
         self.max_x = 0
         self.cells: set[tuple[int, int]] = set()
+        self.rings = 0  # paid for in this game
         self.frames_since_progress = 0
+
+    def _rings(self, prev: dict, info: dict) -> float:
+        change = info.get("rings", 0) - (prev.get("rings", 0) if prev else info.get("rings", 0))
+        if change < 0:
+            return -HIT * self.ring_pay  # hit: all rings lost
+        paid = min(change, RINGS_MAX - self.rings)
+        self.rings += paid
+        return paid * self.ring_pay
 
     def _new_place(self, info: dict) -> bool:
         if not self.cell_pay or "y" not in info:
@@ -104,6 +114,8 @@ class SonicReward:
             reward += LEVEL_BONUS
         if life_lost:
             reward -= self.death
+        elif self.ring_pay:
+            reward += self._rings(prev, info)
         return reward, complete or life_lost or stalled
 
 
@@ -114,7 +126,7 @@ def place(info: dict) -> tuple[int, int] | None:
 
 def make(cfg: Settings) -> RetroEnv:
     states = {"multi": TRAIN_LEVELS, "all": ALL_LEVELS}.get(cfg.sonic_levels) if cfg.state is None else None
-    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg), cfg.sonic_cell_pay, cfg.sonic_death),
+    return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg), cfg.sonic_cell_pay, cfg.sonic_death, cfg.sonic_ring_pay),
                     combos={"short12": SHORT_ACTIONS, "run12": RUN_ACTIONS, "jump9": JUMP_ACTIONS, "retro7": SONIC_ACTIONS}[cfg.sonic_actions],
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,
                     states=states, weak_spots=cfg.weak_spots, where=place,

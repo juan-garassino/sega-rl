@@ -205,7 +205,7 @@ def test_frames_where_the_player_cannot_act_pass_by_themselves():
     game, env = _busy_env(busy_for=10_000)
     env.reset()
     env.step(1)
-    assert len(game.pressed) == 4 + 900  # never stuck for good
+    assert len(game.pressed) == 4 + 120  # never stuck for good, and never holding the other games long
 
 
 def test_the_history_is_game_time_not_decisions():
