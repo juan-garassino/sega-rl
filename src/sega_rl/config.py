@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     sf_taken_weight: float = 0.5  # SEGARL_SF_TAKEN_WEIGHT=0.5 (<1 favours engaging over fleeing)
     sf_states_dir: Path | None = None  # SEGARL_SF_STATES_DIR=/data/fights (train/*.state, heldout/*.state: many opponents)
     sf_fight_episodes: int = 10  # SEGARL_SF_FIGHT_EPISODES=10 (with states: games per opponent and check)
+    sf_stale: bool = False  # SEGARL_SF_STALE=true (repeating a hit pays less; hidden from the network, so off)
     sf_win_health_bonus: float = 1.0  # SEGARL_SF_WIN_HEALTH_BONUS=1.0 (round won: + this × health left)
     sonic_levels: Literal["single", "multi", "all"] = "all"  # SEGARL_SONIC_LEVELS=multi (multi: 13 acts, 4 held out; all: 17)
     sonic_actions: Literal["run12", "jump9", "retro7"] = "run12"  # SEGARL_SONIC_ACTIONS=jump9 (mac-sonic-1) or retro7 (older models)
@@ -56,6 +57,8 @@ class Settings(BaseSettings):
     frame_stack: int = 4  # SEGARL_FRAME_STACK=4
     noop_max: int = 30  # SEGARL_NOOP_MAX=30 (random no-op frames at reset; 0 = always the same start)
     seed: int = 0  # SEGARL_SEED=0
+    gamma: float | None = None  # SEGARL_GAMMA=0.997 (None = per game: sf 0.997 so a win counts from the round's start, sonic 0.99)
+    n_steps: int | None = None  # SEGARL_N_STEPS=256 (None = 128 per env)
     device: str = "auto"  # SEGARL_DEVICE=mps (Apple GPU; auto = NVIDIA or CPU)
     params_file: Path | None = None  # SEGARL_PARAMS_FILE=runs/x/best_params.json
     eval_freq: int = 250_000  # SEGARL_EVAL_FREQ=250000

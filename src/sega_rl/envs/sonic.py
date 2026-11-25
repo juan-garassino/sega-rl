@@ -86,4 +86,4 @@ def make(cfg: Settings) -> RetroEnv:
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, SonicReward(stall_frames(cfg)),
                     combos={"run12": RUN_ACTIONS, "jump9": JUMP_ACTIONS, "retro7": SONIC_ACTIONS}[cfg.sonic_actions],
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max, max_steps=MAX_STEPS,
-                    states=states)
+                    states=states, log_dir=None if states is None else cfg.run_dir / "achievements")

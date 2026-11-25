@@ -38,9 +38,25 @@ def _linear(start: float) -> Callable[[float], float]:
     return lambda progress_remaining: start * progress_remaining
 
 
+def hyperparameters(cfg: Settings) -> dict:
+    """What a run can override, also when it resumes a checkpoint that was made with other values."""
+    return {"gamma": cfg.gamma if cfg.gamma is not None else {"sf": 0.997}.get(cfg.game, PPO_DEFAULTS["gamma"]),
+            "n_steps": cfg.n_steps or PPO_DEFAULTS["n_steps"]}
+
+
+def apply_hyperparameters(model: PPO, cfg: Settings) -> None:
+    """A loaded model keeps the gamma and rollout length it was trained with; set this run's and resize its buffer."""
+    for k, v in hyperparameters(cfg).items():
+        setattr(model, k, v)
+    b = model.rollout_buffer
+    model.rollout_buffer = type(b)(model.n_steps, b.observation_space, b.action_space, device=model.device,
+                                   gamma=model.gamma, gae_lambda=model.gae_lambda, n_envs=b.n_envs)
+
+
 def build_model(cfg: Settings, env: VecEnv) -> PPO:
     params = dict(PPO_DEFAULTS)
     params["learning_rate"] = cfg.learning_rate or default_learning_rate(cfg.game)
+    params.update(hyperparameters(cfg))
     if cfg.params_file:
         params.update(json.loads(Path(cfg.params_file).read_text()))
     params["learning_rate"] = _linear(params["learning_rate"])
@@ -175,6 +191,7 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         if resume_from:
             logger.info("resuming from %s", resume_from)
             model = PPO.load(resume_from, env=env, device=cfg.device)
+            apply_hyperparameters(model, cfg)
         else:
             model = build_model(cfg, env)
         model.set_logger(_make_logger(run_dir))

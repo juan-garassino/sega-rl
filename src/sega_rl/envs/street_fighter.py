@@ -129,9 +129,10 @@ def opponents(cfg: Settings, split: str) -> list[str] | None:
 def make(cfg: Settings) -> RetroEnv:
     fighter = cfg.sf_actions == "fighter"
     reward = SFReward(cfg.reward_mode, dealt_weight=cfg.sf_dealt_weight, taken_weight=cfg.sf_taken_weight,
-                      win_health_bonus=cfg.sf_win_health_bonus, attacks=FIGHTER_ATTACKS if fighter else frozenset(),
+                      win_health_bonus=cfg.sf_win_health_bonus, attacks=FIGHTER_ATTACKS if fighter and cfg.sf_stale else frozenset(),
                       single_match=cfg.sf_states_dir is not None)
     combos = list(FIGHTER_MOVES.values()) if fighter else SF_ACTIONS if cfg.sf_actions == "discrete" else None
     states = opponents(cfg, "train") if cfg.state is None else None
     return RetroEnv(GAME_ID, cfg.state or DEFAULT_STATE, reward, combos=combos, states=states,
+                    log_dir=None if states is None else cfg.run_dir / "achievements",
                     obs_mode=cfg.obs_mode, frame_skip=cfg.frame_skip, noop_max=cfg.noop_max)

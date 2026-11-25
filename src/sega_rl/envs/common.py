@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import gzip
 import logging
+from pathlib import Path
 from typing import Callable, Literal
 
 import cv2
 import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Discrete
+
+from sega_rl.monitoring.achievements import first
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,7 @@ class RetroEnv(gym.Env):
         max_steps: int | None = None,
         noop_max: int = 0,
         states: list[str] | None = None,
+        log_dir: Path | None = None,
     ):
         super().__init__()
         cv2.setNumThreads(1)  # every env process would otherwise open a thread per host core
@@ -78,6 +82,7 @@ class RetroEnv(gym.Env):
         self.frame_skip = frame_skip
         self.max_steps = max_steps
         self.noop_max = noop_max
+        self.log_dir, self.start = log_dir, None  # where to note "first finished / first beat"; what this game started from
         self.states = states  # each game starts on one of these, drawn at random
         self.buttons: list[str] = list(self.game.buttons)
         self.combos = combos
@@ -120,7 +125,8 @@ class RetroEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         if self.states:
-            load_start(self.game, self.states[int(self.np_random.integers(len(self.states)))])
+            self.start = self.states[int(self.np_random.integers(len(self.states)))]
+            load_start(self.game, self.start)
         frame, info = self.game.reset(seed=seed)
         if hasattr(self.reward_fn, "reset"):
             self.reward_fn.reset()
@@ -173,7 +179,19 @@ class RetroEnv(gym.Env):
         if "level_complete" in info:
             info["level_complete"] = level_complete
         info["buttons"] = buttons
+        if self.log_dir is not None:
+            self._celebrate(info)
         return self._observe(preprocess(pooled)), float(total), terminated, truncated, info
+
+    def _celebrate(self, info: dict) -> None:
+        """Note the first time any game finishes this level or wins a match against this opponent."""
+        if self.start is None:
+            return
+        name = Path(self.start).name.removesuffix(".state")
+        if info.get("level_complete"):
+            first(self.log_dir, f"finish_{name}", f"finished {name}")
+        if info.get("matches_won", 0) >= 2 and info.get("enemy_matches_won", 0) < 2:
+            first(self.log_dir, f"win_{name}", f"won a match against {name}")
 
     def render(self):
         return self.last_raw

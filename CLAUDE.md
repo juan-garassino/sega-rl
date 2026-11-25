@@ -19,6 +19,7 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | `monitoring/video.py` | mp4 writer, 3x enlarged |
 | `evaluate.py` | `run_eval` (deterministic, in-process), `run_levels_eval` (Sonic: score = held-out levels), `EvalCallback` (video, best_model.zip, best.json) |
 | `evaluate.run_fights_eval` | SF on many opponents: `SEGARL_SF_STATES_DIR` with `train/` and `heldout/` start states (from `sega-rl ladder`); score = held-out fights, one match per game |
+| `monitoring/achievements.py` | first win vs each opponent, first finish of each level: `runs/<id>/achievements/*.json` |
 | `bench.py` | `sega-rl bench` (pod only): emulator vs update time per thread count, damage of every SF move → bench.json, moves.mp4; `sega-rl compare`: a checkpoint's likeliest-move vs sampled win rate |
 | `train.py` | `run()`: resume, callbacks (checkpoints, health, eval, budget), env-crash handling, DONE marker |
 | `ladder.py` | `sega-rl ladder` (pod only): cheats up SF's ladder to save one start state per opponent (states are ROM-like: never in git or public) |
