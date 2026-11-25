@@ -20,9 +20,10 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 | `evaluate.py` | `run_eval` (deterministic, in-process), `run_levels_eval` (Sonic: score = held-out levels), `EvalCallback` (video, best_model.zip, best.json) |
 | `bench.py` | `sega-rl bench` (pod only): emulator vs update time per thread count, damage of every SF move → bench.json, moves.mp4 |
 | `train.py` | `run()`: resume, callbacks (checkpoints, health, eval, budget), env-crash handling, DONE marker |
+| `ladder.py` | `sega-rl ladder` (pod only): cheats up SF's ladder to save one start state per opponent (states are ROM-like: never in git or public) |
 | `tune.py` | Optuna, upstream search space → best_params.json (`SEGARL_PARAMS_FILE`) |
 | `status.py` | `sega-rl status <run>` (live state) and `sega-rl videos <run>` (download eval replays) via MLflow |
-| `cli.py` | `sega-rl train|tune|eval|bench|smoke|status|check-rom|import-roms` |
+| `cli.py` | `sega-rl train|tune|eval|bench|ladder|smoke|status|check-rom|import-roms` |
 
 `runpod/`: `Dockerfile.cpu` (slim, CPU torch from the lock — CPU pods, `:cpu` tag), `Dockerfile` (CUDA 12.8, torch 2.14.1 cu126 — GPU pods, `:latest`), `entrypoint.sh`
 (lifecycle, see runpod/README.md), `scripts/pod_self.sh` (cost / self-terminate with retries).
