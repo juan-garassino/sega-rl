@@ -57,6 +57,7 @@ class RetroEnv(gym.Env):
         states: list[str] | None = None,
     ):
         super().__init__()
+        cv2.setNumThreads(1)  # every env process would otherwise open a thread per host core
         self.game = inner if inner is not None else _make_retro(game_id, state)
         self.reward_fn = reward_fn
         self.obs_mode = obs_mode

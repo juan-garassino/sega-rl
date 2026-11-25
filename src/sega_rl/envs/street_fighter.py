@@ -26,11 +26,11 @@ def _mirror(move: Move) -> Move:
     return [([flip.get(b, b) for b in names], n) for names, n in move]
 
 
-# Facing right. The game data has no positions, so every directional move exists both ways and the CNN picks.
+# Facing right; ↓↘→ starts from neutral, or a walk forward before it makes it the Shoryuken motion. The game data has no positions, so every directional move exists both ways and the CNN picks.
 _RIGHT_MOVES: dict[str, Move] = {
-    "hadouken": [(["DOWN"], 3), (["DOWN", "RIGHT"], 3), (["RIGHT"], 2), (["RIGHT", "Y"], 4)],
+    "hadouken": [([], 10), (["DOWN"], 3), (["DOWN", "RIGHT"], 3), (["RIGHT"], 2), (["RIGHT", "Y"], 4)],
     "shoryuken": [(["RIGHT"], 3), (["DOWN"], 3), (["DOWN", "RIGHT"], 2), (["DOWN", "RIGHT", "Z"], 4)],
-    "tatsumaki": [(["DOWN"], 3), (["DOWN", "LEFT"], 3), (["LEFT"], 2), (["LEFT", "B"], 4)],
+    "tatsumaki": [([], 10), (["DOWN"], 3), (["DOWN", "LEFT"], 3), (["LEFT"], 2), (["LEFT", "B"], 4)],
     "forward_hp": [(["RIGHT", "Z"], 4)],  # a throw when close
     "forward_hk": [(["RIGHT", "C"], 4)],
     "jump_kick": [(["UP", "RIGHT"], 4), ([], 16), (["C"], 6)],

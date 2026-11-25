@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from sega_rl.bench import SplitTimer, try_moves
+from sega_rl.bench import INTRO_STEPS, SplitTimer, try_moves
 
 
 def test_split_timer_separates_collecting_from_updating():
@@ -16,14 +16,15 @@ def test_split_timer_separates_collecting_from_updating():
 
 
 class _Env:
-    """Move 2 does 10 damage, only after walking (near)."""
+    """Move 2 does 10 damage, only after the intro and only after walking (near)."""
 
     def reset(self, seed=None):
-        self.walked = 0
+        self.walked = self.steps = 0
         return None, {}
 
     def step(self, action):
-        self.walked += action == 1
+        self.steps += 1
+        self.walked += action == 1 and self.steps > INTRO_STEPS
         return None, 0.0, False, False, {"damage_dealt": 10 if action == 2 and self.walked else 0}
 
     def render(self):
