@@ -32,20 +32,22 @@ class LevelPoints:
     A state counts only once the game has survived SURVIVE more moves, so nobody practises from a moment already lost.
     """
 
-    SURVIVE, FURTHEST = 8, 0.3
+    SURVIVE, FURTHEST = 45, 0.3  # moves, about 3 s: at 8, points in the middle of a fatal fall were kept
+    DOOMED = 5  # a practice game that dies within this many moves deletes its point
 
     def __init__(self, directory: Path, prob: float):
         self.directory, self.prob = Path(directory), prob
         self.seen: set[tuple[int, int]] = set()  # places of this game
         self.pending: list[list] = []  # [moves survived, place, state]
         self.visits: dict[str, int] = {}
+        self.picked: Path | None = None
 
     def _file(self, level: str, place: tuple[int, int]) -> Path:
         return self.directory / f"{level}.x{place[0]:03d}y{place[1]:03d}.state"
 
     def pick(self, rng: np.random.Generator, level: str) -> Path | None:
         """A state in the level, or None for the normal start. Mostly places practised less, sometimes the furthest."""
-        self.seen, self.pending = set(), []
+        self.seen, self.pending, self.picked = set(), [], None
         if rng.random() >= self.prob or not (files := sorted(self.directory.glob(f"{level}.x*.state"))):
             return None
         if rng.random() < self.FURTHEST:
@@ -54,7 +56,13 @@ class LevelPoints:
             w = np.array([1.0 / np.sqrt(1 + self.visits.get(f.name, 0)) for f in files])
             f = files[int(rng.choice(len(files), p=w / w.sum()))]
         self.visits[f.name] = self.visits.get(f.name, 0) + 1
+        self.picked = f
         return f
+
+    def doomed(self) -> None:
+        """The game started at the picked point died at once: nobody should practise from there."""
+        if self.picked is not None:
+            self.picked.unlink(missing_ok=True)
 
     def reached(self, level: str, place: tuple[int, int], get_state: Callable[[], bytes]) -> None:
         """Call after every move the game survived."""

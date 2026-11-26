@@ -99,7 +99,8 @@ def _reward(prev, info):
     return 0.0, info["level_complete"]
 
 
-def test_a_game_saves_points_then_practises_from_them(tmp_path):
+def test_a_game_saves_points_then_practises_from_them(tmp_path, monkeypatch):
+    monkeypatch.setattr(LevelPoints, "SURVIVE", 8)  # the stand-in level is short
     game = _Game()
     env = RetroEnv("g", None, _reward, [[], ["B"]], "frame", 1, inner=game, states=["L"], weak_spots=True, noop_max=0,
                    log_dir=tmp_path / "a", points=LevelPoints(tmp_path / "p", 1.0), where=lambda info: (info["x"] // 50, 0))

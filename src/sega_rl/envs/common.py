@@ -232,6 +232,8 @@ class RetroEnv(gym.Env):
         """Keep this point of the level for practice; when the game ends, note whether this start was beaten."""
         if not over and self.points is not None and (at := self.where(info)) is not None:
             self.points.reached(self.start, at, self.game.em.get_state)
+        if over and self.practice and self.points is not None and self._steps <= self.points.DOOMED and not info.get("level_complete"):
+            self.points.doomed()
         if over and self.mix is not None and not self.practice:
             beaten = info.get("level_complete") or info.get("matches_won", 0) > info.get("enemy_matches_won", 0)
             self.mix.result(self.start, bool(beaten))
