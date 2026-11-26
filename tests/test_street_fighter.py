@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from sega_rl.envs.street_fighter import FIGHTER_ATTACKS, FIGHTER_MOVES, SFReward
@@ -97,6 +98,28 @@ def test_fighter_moves_include_every_special_both_ways():
         assert {f"{name}_left", f"{name}_right"} <= set(FIGHTER_MOVES)
     names = list(FIGHTER_MOVES)
     assert all(names[i] not in ("idle", "left", "right", "up") for i in FIGHTER_ATTACKS)
+
+
+def test_a_single_match_ends_when_either_side_wins_twice():
+    fn = SFReward("shaped", single_match=True)
+    fn({}, _info())
+    assert fn(_info(), _info(matches_won=1))[1] is False
+    assert fn(_info(matches_won=1), _info(matches_won=2))[1] is True
+    assert fn(_info(enemy_matches_won=1), _info(enemy_matches_won=2))[1] is True
+    assert SFReward("shaped")(_info(), _info(matches_won=2))[1] is False
+
+
+def test_opponents_come_from_the_split_folders(tmp_path):
+    from sega_rl.config import Settings
+    from sega_rl.envs.street_fighter import opponents
+
+    for split, names in (("train", ("Ken", "Blanka")), ("heldout", ("Sagat",))):
+        (tmp_path / split).mkdir()
+        for n in names:
+            (tmp_path / split / f"{n}.state").touch()
+    cfg = Settings(game="sf", sf_states_dir=tmp_path)
+    assert [p.split("/")[-1] for p in opponents(cfg, "train")] == ["Blanka.state", "Ken.state"]
+    assert len(opponents(cfg, "heldout")) == 1 and opponents(Settings(game="sf"), "train") is None
 
 
 @pytest.mark.rom
@@ -205,3 +228,20 @@ def test_standing_still_deals_no_damage_on_the_real_game():
         env.close()
     assert dealt == 0
     assert taken == 2 * 176
+
+
+def test_ryu_is_busy_while_locked_between_rounds_and_before_the_clock_starts():
+    from sega_rl.envs import street_fighter as sf
+
+    reward = sf.SFReward()
+    busy = sf.Busy(reward)
+    ram = np.zeros(65536, np.uint8)
+    ram[sf.ROUND_CLOCK] = 0x87
+    assert not busy(ram)
+    for state, locked in ((0, False), (2, False), (4, False), (8, False), (10, True), (12, True), (14, True), (20, True)):
+        ram[sf.PLAYER_STATE] = state
+        assert busy(ram) is locked
+    ram[sf.PLAYER_STATE], ram[sf.ROUND_CLOCK] = 0, 0x99
+    assert busy(ram)
+    ram[sf.ROUND_CLOCK], reward.between_rounds = 0x50, True
+    assert busy(ram)

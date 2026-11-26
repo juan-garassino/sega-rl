@@ -44,17 +44,32 @@ class Settings(BaseSettings):
     sf_actions: Literal["fighter", "discrete", "multibinary"] = "fighter"  # SEGARL_SF_ACTIONS=discrete (no specials)
     sf_dealt_weight: float = 1.0  # SEGARL_SF_DEALT_WEIGHT=1.0
     sf_taken_weight: float = 0.5  # SEGARL_SF_TAKEN_WEIGHT=0.5 (<1 favours engaging over fleeing)
+    sf_states_dir: Path | None = None  # SEGARL_SF_STATES_DIR=/data/fights (train/*.state, heldout/*.state: many opponents)
+    sf_fight_episodes: int = 10  # SEGARL_SF_FIGHT_EPISODES=10 (with states: games per opponent and check)
+    sf_skip_busy: bool = True  # SEGARL_SF_SKIP_BUSY=false (up to mac-sf-5: also asks for a choice while Ryu cannot act)
+    sf_stale: bool = False  # SEGARL_SF_STALE=true (repeating a hit pays less; hidden from the network, so off)
     sf_win_health_bonus: float = 1.0  # SEGARL_SF_WIN_HEALTH_BONUS=1.0 (round won: + this × health left)
-    sonic_levels: Literal["single", "multi"] = "multi"  # SEGARL_SONIC_LEVELS=single (multi: 13 acts, 4 held out)
+    sonic_levels: Literal["single", "multi", "all"] = "all"  # SEGARL_SONIC_LEVELS=multi (multi: 13 acts, 4 held out; all: 17)
+    sonic_actions: Literal["short12", "run12", "jump9", "retro7"] = "short12"  # SEGARL_SONIC_ACTIONS=run12 (up to mac-sonic-5), jump9 (mac-sonic-1) or retro7
+    sonic_cell_pay: float = 0.2  # SEGARL_SONIC_CELL_PAY=0.2 (per new place in any direction; 100 px of new ground pay 1)
+    sonic_death: float = 3.0  # SEGARL_SONIC_DEATH=3.0 (taken for a lost life)
+    sonic_ring_pay: float = 0.05  # SEGARL_SONIC_RING_PAY=0.05 (per ring, at most 40 a game; being hit costs 10 rings' worth)
     sonic_level_episodes: int = 2  # SEGARL_SONIC_LEVEL_EPISODES=2 (multi: games per level and eval)
     sonic_stall_secs: float = 30.0  # SEGARL_SONIC_STALL_SECS=30 (end a Sonic episode after this long without new ground)
+    sonic_practice_prob: float = 0.5  # SEGARL_SONIC_PRACTICE_PROB=0.5 (games starting at a point of the level already reached)
+    weak_spots: bool = True  # SEGARL_WEAK_SPOTS=false (start more often on levels / opponents not beaten yet)
     learning_rate: float | None = None  # SEGARL_LEARNING_RATE=1e-4 (None = per-game default)
     frame_skip: int = 4  # SEGARL_FRAME_SKIP=4
     frame_stack: int = 4  # SEGARL_FRAME_STACK=4
     noop_max: int = 30  # SEGARL_NOOP_MAX=30 (random no-op frames at reset; 0 = always the same start)
     seed: int = 0  # SEGARL_SEED=0
+    gamma: float | None = None  # SEGARL_GAMMA=0.997 (None = per game: sf 0.997 so a win counts from the round's start, sonic 0.99)
+    n_steps: int | None = None  # SEGARL_N_STEPS=256 (None = 128 per env)
+    device: str = "auto"  # SEGARL_DEVICE=mps (Apple GPU; auto = NVIDIA or CPU)
+    init_from: Path | None = None  # SEGARL_INIT_FROM=runs/a/checkpoints/ckpt_x.zip (new run from this network; may add frames)
     params_file: Path | None = None  # SEGARL_PARAMS_FILE=runs/x/best_params.json
     eval_freq: int = 250_000  # SEGARL_EVAL_FREQ=250000
+    eval_sampled: bool = True  # SEGARL_EVAL_SAMPLED=false (also check sampled play, as training does: eval_sampled/*)
     eval_episodes: int | None = None  # SEGARL_EVAL_EPISODES=5 (None = per game: sf 15 so an eval has >= 30 rounds)
     eval_max_steps: int = 4500  # SEGARL_EVAL_MAX_STEPS=4500 (agent steps per eval episode)
     ckpt_freq: int = 250_000  # SEGARL_CKPT_FREQ=250000
@@ -76,6 +91,11 @@ class Settings(BaseSettings):
     fps_warn_frac: float = 0.5  # SEGARL_FPS_WARN_FRAC=0.5
     fps_zero_secs: float = 300.0  # SEGARL_FPS_ZERO_SECS=300
     button_spam_frac: float = 0.9  # SEGARL_BUTTON_SPAM_FRAC=0.9
+
+    @property
+    def vec_stack(self) -> int:
+        """Frames the vec-env stacks: none when the game keeps its own history."""
+        return 1 if self.game == "sf" and self.sf_skip_busy else self.frame_stack
 
     @property
     def steps(self) -> int:

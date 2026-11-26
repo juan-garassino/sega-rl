@@ -23,4 +23,4 @@ def make_single(cfg: Settings, rank: int) -> Callable[[], gym.Env]:
 def make_vec_env(cfg: Settings, n_envs: int | None = None) -> VecEnv:
     n = n_envs or cfg.n_envs
     venv = SubprocVecEnv([make_single(cfg, i) for i in range(n)], start_method="forkserver")
-    return VecFrameStack(VecMonitor(venv), cfg.frame_stack, channels_order="last")
+    return VecFrameStack(VecMonitor(venv), cfg.vec_stack, channels_order="last")

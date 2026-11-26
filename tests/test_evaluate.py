@@ -64,7 +64,7 @@ def test_best_model_selection(tmp_path):
         EvalResult(win_rate=0.1, mean_damage_dealt=90, mean_damage_taken=10, mean_return=0.0),
         EvalResult(win_rate=0.4, mean_damage_dealt=40, mean_damage_taken=80, mean_return=0.0),
     ])
-    cfg = Settings(game="sf", eval_freq=100)
+    cfg = Settings(game="sf", eval_freq=100, eval_sampled=False)
     cb = EvalCallback(cfg, tmp_path, eval_fn=lambda *a, **k: next(results))
     model = _RandomModel(MultiBinary(12))
     cb.init_callback(model)
@@ -91,7 +91,7 @@ def test_best_restored_on_resume(tmp_path):
     (tmp_path / "best.json").write_text(_json.dumps({"step": 1, "win_rate": 0.5, "mean_damage_dealt": 0,
                                                      "mean_damage_taken": 0, "mean_return": 0.0}))
     results = iter([EvalResult(win_rate=0.3, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0.0)])
-    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=lambda *a, **k: next(results))
+    cb = EvalCallback(Settings(game="sf", eval_freq=100, eval_sampled=False), tmp_path, eval_fn=lambda *a, **k: next(results))
     model = _RandomModel(MultiBinary(12))
     cb.init_callback(model)
     model.num_timesteps = 100
@@ -105,7 +105,7 @@ def test_best_model_uploaded_on_improvement(tmp_path, monkeypatch):
     uploads = []
     monkeypatch.setattr(mlflow_tracking, "log_artifact", lambda p, a=None: uploads.append(str(p)))
     results = iter([EvalResult(win_rate=0.2, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0.0)])
-    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=lambda *a, **k: next(results))
+    cb = EvalCallback(Settings(game="sf", eval_freq=100, eval_sampled=False), tmp_path, eval_fn=lambda *a, **k: next(results))
     model = _RandomModel(MultiBinary(12))
     cb.init_callback(model)
     model.num_timesteps = 100
@@ -119,12 +119,77 @@ def test_sonic_score_comes_from_held_out_levels_but_best_model_from_training_lev
 
     seen = []
 
-    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None):
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
         seen.append(cfg.state)
         held = cfg.state in HELD_OUT
         return EvalResult(win_rate=0.25 if held else 0.75, mean_damage_dealt=0, mean_damage_taken=0, mean_return=1,
                           mean_progress=0.4 if held else 0.9)
 
-    r = run_levels_eval(None, Settings(game="sonic"), eval_fn=fake)
+    r = run_levels_eval(None, Settings(game="sonic", sonic_levels="multi"), eval_fn=fake)
     assert len(seen) == 8 and r.win_rate == 0.25 and r.train_win_rate == 0.75
     assert score("sonic", r) == (0.75, 0.9)
+
+
+def test_every_check_is_also_played_sampled(tmp_path):
+    from gymnasium.spaces import MultiBinary
+
+    played = []
+
+    def fake(model, cfg, episodes, video_path=None, heartbeat=None, deterministic=True):
+        played.append(deterministic)
+        return EvalResult(win_rate=0.4 if deterministic else 0.6, mean_damage_dealt=0, mean_damage_taken=0, mean_return=0)
+
+    cb = EvalCallback(Settings(game="sf", eval_freq=100), tmp_path, eval_fn=fake)
+    model = _RandomModel(MultiBinary(12))
+    cb.init_callback(model)
+    model.num_timesteps = 100
+    cb.on_step()
+    assert played == [True, False] and model.logger.records["eval_sampled/win_rate"] == 0.6
+    assert model.logger.records["eval/win_rate"] == 0.4  # best_model still follows the likeliest-move score
+
+
+def test_sf_is_scored_on_opponents_it_never_trained_on(tmp_path):
+    from sega_rl.evaluate import run_fights_eval, score
+
+    for split, names in (("train", ("Ken", "Guile")), ("heldout", ("Sagat",))):
+        (tmp_path / split).mkdir()
+        for n in names:
+            (tmp_path / split / f"{n}.state").touch()
+    seen = []
+
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
+        seen.append(cfg.state.split("/")[-1])
+        held = "Sagat" in cfg.state
+        return EvalResult(win_rate=0.3 if held else 0.8, mean_damage_dealt=1, mean_damage_taken=1, mean_return=1, rounds_done=5)
+
+    r = run_fights_eval(None, Settings(game="sf", sf_states_dir=tmp_path), eval_fn=fake)
+    assert len(seen) == 3 and r.win_rate == 0.3 and r.train_win_rate == 0.8
+    assert score("sf", r)[0] == 0.8  # the best model is never picked by the held-out fights
+
+
+def test_sonic_can_train_and_be_scored_on_every_level(tmp_path):
+    from sega_rl.envs.sonic import ALL_LEVELS
+    from sega_rl.evaluate import run_levels_eval
+
+    seen = []
+
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
+        seen.append(cfg.state)
+        return EvalResult(win_rate=0.5, mean_damage_dealt=0, mean_damage_taken=0, mean_return=1, mean_progress=0.6)
+
+    r = run_levels_eval(None, Settings(game="sonic"), eval_fn=fake)
+    assert seen == ALL_LEVELS and r.win_rate == 0.5 and math.isnan(r.train_win_rate)
+
+
+def test_sf_without_held_out_opponents_is_scored_on_the_ones_it_trains_on(tmp_path):
+    from sega_rl.evaluate import run_fights_eval
+
+    (tmp_path / "train").mkdir()
+    for n in ("Ken", "Guile"):
+        (tmp_path / "train" / f"{n}.state").touch()
+
+    def fake(model, cfg, episodes, video_path=None, max_steps=None, heartbeat=None, deterministic=True):
+        return EvalResult(win_rate=0.7, mean_damage_dealt=1, mean_damage_taken=1, mean_return=1, rounds_done=4)
+
+    r = run_fights_eval(None, Settings(game="sf", sf_states_dir=tmp_path), eval_fn=fake)
+    assert r.win_rate == 0.7 and r.rounds_done == 8 and math.isnan(r.train_win_rate)

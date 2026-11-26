@@ -16,6 +16,7 @@ from stable_baselines3.common.vec_env import VecEnv
 from sega_rl.config import Settings, default_learning_rate
 from sega_rl.envs.factory import make_vec_env
 from sega_rl.evaluate import EvalCallback, run_baselines
+from sega_rl.graft import graft_frames
 from sega_rl.monitoring import mlflow_tracking
 from sega_rl.monitoring.health import HealthCallback, HealthMonitor
 
@@ -38,15 +39,39 @@ def _linear(start: float) -> Callable[[float], float]:
     return lambda progress_remaining: start * progress_remaining
 
 
+def hyperparameters(cfg: Settings) -> dict:
+    """What a run can override, also when it resumes a checkpoint that was made with other values."""
+    return {"gamma": cfg.gamma if cfg.gamma is not None else {"sf": 0.997}.get(cfg.game, PPO_DEFAULTS["gamma"]),
+            "n_steps": cfg.n_steps or PPO_DEFAULTS["n_steps"]}
+
+
+def apply_hyperparameters(model: PPO, cfg: Settings) -> None:
+    """A loaded model keeps the gamma and rollout length it was trained with; set this run's and resize its buffer."""
+    for k, v in hyperparameters(cfg).items():
+        setattr(model, k, v)
+    b = model.rollout_buffer
+    model.rollout_buffer = type(b)(model.n_steps, b.observation_space, b.action_space, device=model.device,
+                                   gamma=model.gamma, gae_lambda=model.gae_lambda, n_envs=b.n_envs)
+
+
+def keep_counters_on_cpu(model: PPO) -> None:
+    """Loading a checkpoint puts Adam's step counters on the GPU, and reading each one back there makes every weight
+    update wait: about 4 ms instead of 0.8 ms on Apple's GPU."""
+    for state in model.policy.optimizer.state.values():
+        if torch.is_tensor(state.get("step")):
+            state["step"] = state["step"].cpu()
+
+
 def build_model(cfg: Settings, env: VecEnv) -> PPO:
     params = dict(PPO_DEFAULTS)
     params["learning_rate"] = cfg.learning_rate or default_learning_rate(cfg.game)
+    params.update(hyperparameters(cfg))
     if cfg.params_file:
         params.update(json.loads(Path(cfg.params_file).read_text()))
     params["learning_rate"] = _linear(params["learning_rate"])
     if not torch.cuda.is_available():
         torch.set_num_threads(torch_threads(os.cpu_count() or 2, cfg.n_envs))
-    return PPO("CnnPolicy", env, seed=cfg.seed, verbose=0, **params)
+    return PPO("CnnPolicy", env, seed=cfg.seed, device=cfg.device, verbose=0, **params)
 
 
 class CheckpointKeeper(BaseCallback):
@@ -174,9 +199,14 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         resume_from = _latest_checkpoint(ckpt_dir)
         if resume_from:
             logger.info("resuming from %s", resume_from)
-            model = PPO.load(resume_from, env=env)
+            model = PPO.load(resume_from, env=env, device=cfg.device)
+            apply_hyperparameters(model, cfg)
+            keep_counters_on_cpu(model)
         else:
             model = build_model(cfg, env)
+            if cfg.init_from:
+                logger.info("starting from %s", cfg.init_from)
+                graft_frames(PPO.load(cfg.init_from, device=cfg.device), model)
         model.set_logger(_make_logger(run_dir))
         if cfg.game in ("sf", "sonic"):
             mlflow_tracking.log_metrics(run_baselines(cfg, run_dir, env.action_space), step=0)
@@ -184,7 +214,7 @@ def run(cfg: Settings, env_factory: Callable[[Settings], VecEnv] = make_vec_env)
         callbacks = CallbackList([keeper, health, EvalCallback(cfg, run_dir, heartbeat=health.heartbeat), budget])
         remaining = cfg.steps - model.num_timesteps
         if remaining > 0:
-            model.learn(total_timesteps=remaining, callback=callbacks, reset_num_timesteps=resume_from is None,
+            model.learn(total_timesteps=remaining, callback=callbacks, reset_num_timesteps=model.num_timesteps == 0,
                         log_interval=10)
         if health.last_report and health.last_report.status == "CRITICAL":
             status = "critical"

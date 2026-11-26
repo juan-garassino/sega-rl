@@ -151,3 +151,66 @@ def test_each_game_starts_on_one_of_the_given_states():
     for seed in range(20):
         env.reset(seed=seed)
     assert set(stub.loaded) == {"A", "B", "C"}
+
+
+def test_a_start_can_be_our_own_state_file(tmp_path):
+    import gzip
+
+    from sega_rl.envs.common import load_start
+
+    f = tmp_path / "Ken.state"
+    f.write_bytes(gzip.compress(b"ken"))
+    stub = _StubRetro()
+    load_start(stub, str(f))
+    assert stub.initial_state == b"ken"
+
+
+class _BusyGame:
+    """A stand-in emulator whose RAM byte 0 says busy for `busy_for` frames after a press."""
+
+    buttons = ["B"]
+
+    def __init__(self, busy_for):
+        from gymnasium.spaces import MultiBinary
+
+        self.action_space, self.busy_for, self.left, self.pressed = MultiBinary(1), busy_for, 0, []
+
+    def reset(self, seed=None):
+        self.n = 0
+        return np.zeros((224, 320, 3), np.uint8), {}
+
+    def get_ram(self):
+        return np.array([self.left > 0], np.uint8)
+
+    def step(self, buttons):
+        self.n += 1
+        self.pressed.append(int(buttons[0]))
+        self.left = self.busy_for if buttons[0] else max(0, self.left - 1)
+        return np.full((224, 320, 3), self.n % 250, np.uint8), 0.0, False, False, {}
+
+
+def _busy_env(busy_for, history=8):
+    game = _BusyGame(busy_for)
+    return game, RetroEnv("g", None, lambda p, i: (1.0, False), [[], ["B"]], "frame", 4, inner=game,
+                          busy=lambda ram: bool(ram[0]), history=history)
+
+
+def test_frames_where_the_player_cannot_act_pass_by_themselves():
+    game, env = _busy_env(busy_for=20)
+    env.reset()
+    _, reward, _, _, _ = env.step(1)
+    assert game.pressed == [1] * 4 + [0] * 20 and reward == 24.0  # every frame still counts for the reward
+    env.step(0)
+    assert len(game.pressed) == 28  # free to act: one ordinary move, no waiting
+    game, env = _busy_env(busy_for=10_000)
+    env.reset()
+    env.step(1)
+    assert len(game.pressed) == 4 + 120  # never stuck for good, and never holding the other games long
+
+
+def test_the_history_is_game_time_not_decisions():
+    game, env = _busy_env(busy_for=20)
+    obs, _ = env.reset()
+    assert obs.shape == (84, 84, 8) and not obs.any()
+    obs, *_ = env.step(1)  # 24 frames: six of the eight history frames are new, 4 game frames apart
+    assert [int(obs[0, 0, k]) for k in range(8)] == [0, 0, 4, 8, 12, 16, 20, 24] and len(env.film) == 6

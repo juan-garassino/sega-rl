@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import gzip
 import logging
+from collections import deque
+from pathlib import Path
 from typing import Callable, Literal
 
 import cv2
 import gymnasium as gym
 import numpy as np
 from gymnasium.spaces import Box, Discrete
+
+from sega_rl.envs.starts import LevelPoints, WeakSpots
+from sega_rl.monitoring.achievements import first
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +26,10 @@ SUM_KEYS = ("damage_dealt", "damage_taken")
 Move = list[str] | list[tuple[list[str], int]]
 
 
+HISTORY_GAP = 4  # game frames between the frames of an observation
+MAX_WAIT = 120  # game frames: all games step together, so one sitting through a round change must not hold the rest
+
+
 def preprocess(frame: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     small = cv2.resize(gray, (84, 84), interpolation=cv2.INTER_AREA)
@@ -31,9 +41,22 @@ def signed_delta(cur: np.ndarray, prev: np.ndarray) -> np.ndarray:
     return ((d + 255) // 2).astype(np.uint8)
 
 
+def load_start(game, state: str) -> None:
+    """A state shipped with the integration, or a .state file of our own (from `sega-rl ladder`)."""
+    if state.endswith(".state"):
+        with gzip.open(state, "rb") as f:
+            game.initial_state = f.read()
+    else:
+        game.load_state(state)
+
+
 def _make_retro(game_id: str, state: str | None) -> gym.Env:
     import stable_retro
 
+    if state is not None and state.endswith(".state"):
+        game = _make_retro(game_id, None)
+        load_start(game, state)
+        return game
     kwargs = {"use_restricted_actions": stable_retro.Actions.FILTERED, "render_mode": None}
     if state is not None:
         kwargs["state"] = state
@@ -55,6 +78,12 @@ class RetroEnv(gym.Env):
         max_steps: int | None = None,
         noop_max: int = 0,
         states: list[str] | None = None,
+        log_dir: Path | None = None,
+        weak_spots: bool = False,
+        points: LevelPoints | None = None,
+        where: Callable[[dict], tuple[int, int] | None] | None = None,
+        busy: Callable[[np.ndarray], bool] | None = None,
+        history: int = 1,
     ):
         super().__init__()
         cv2.setNumThreads(1)  # every env process would otherwise open a thread per host core
@@ -64,7 +93,14 @@ class RetroEnv(gym.Env):
         self.frame_skip = frame_skip
         self.max_steps = max_steps
         self.noop_max = noop_max
-        self.states = states  # each game starts on one of these, drawn at random
+        self.log_dir, self.start = log_dir, None  # where to note "first finished / first beat"; what this game started from
+        self.states = states  # each game starts on one of these, drawn at random (or more often where it is weak)
+        self.mix = WeakSpots(states) if states and weak_spots else None
+        self.points, self.where = points, where  # practice starts in a level; the place an info is at
+        self.practice = False
+        self.busy = busy  # (RAM) -> the player cannot act: such frames pass by themselves, without asking for a choice
+        self.history = history  # frames in an observation, one per HISTORY_GAP game frames (1: the vec-env stacks decisions)
+        self.film: list[np.ndarray] = []  # what the last step looked like, one frame per HISTORY_GAP
         self.buttons: list[str] = list(self.game.buttons)
         self.combos = combos
         if combos is None:
@@ -72,7 +108,7 @@ class RetroEnv(gym.Env):
         else:
             self.action_space = Discrete(len(combos))
             self._moves = [self._move(c) for c in combos]
-        self.observation_space = Box(0, 255, (84, 84, 1), np.uint8)
+        self.observation_space = Box(0, 255, (84, 84, history), np.uint8)
         self.last_raw: np.ndarray | None = None
         self._prev_obs: np.ndarray | None = None
         self._prev_info: dict = {}
@@ -106,13 +142,18 @@ class RetroEnv(gym.Env):
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         if self.states:
-            self.game.load_state(self.states[int(self.np_random.integers(len(self.states)))])
+            self.start = self.mix.pick(self.np_random) if self.mix else self.states[int(self.np_random.integers(len(self.states)))]
+            point = self.points.pick(self.np_random, self.start) if self.points else None
+            self.practice = point is not None
+            load_start(self.game, str(point) if point else self.start)
         frame, info = self.game.reset(seed=seed)
         if hasattr(self.reward_fn, "reset"):
             self.reward_fn.reset()
         # Random no-op start: otherwise every episode (and every parallel env) replays the same savestate.
         noop = np.zeros(len(self.buttons), np.int8)
-        for _ in range(int(self.np_random.integers(0, self.noop_max + 1)) if self.noop_max else 0):
+        # (A practice start is mid-run: standing still there could kill it, so only a short wait.)
+        wait = min(self.noop_max, 4) if self.practice else self.noop_max
+        for _ in range(int(self.np_random.integers(0, wait + 1)) if wait else 0):
             frame, _, term, trunc, info = self.game.step(noop)
             if term or trunc:
                 frame, info = self.game.reset()
@@ -120,6 +161,10 @@ class RetroEnv(gym.Env):
         self._prev_obs = None
         self._steps = 0
         self.last_raw = frame
+        if self.history > 1:
+            self._past = deque([np.zeros((84, 84, 1), np.uint8)] * self.history, self.history)
+            self._past.append(preprocess(frame))
+            return np.concatenate(self._past, -1), dict(info)
         return self._observe(preprocess(frame)), dict(info)
 
     def step(self, action):
@@ -129,7 +174,8 @@ class RetroEnv(gym.Env):
         info: dict = {}
         sums: dict[str, float] = {}
         round_won, level_complete = None, False
-        for buttons in self._frames(action):
+        self.film = []
+        for buttons in self._with_waiting(self._frames(action)):
             frame, _, term, trunc, info = self.game.step(buttons)
             info = dict(info)
             if move is not None:
@@ -144,6 +190,9 @@ class RetroEnv(gym.Env):
             level_complete = level_complete or bool(info.get("level_complete"))
             total += r
             frames.append(frame)
+            if self.history > 1 and len(frames) % HISTORY_GAP == 0:
+                self._past.append(preprocess(np.maximum(frames[-2], frames[-1])))
+                self.film.append(frame)
             terminated = terminated or term or extra_term
             truncated = truncated or trunc
             if terminated or truncated:
@@ -159,7 +208,46 @@ class RetroEnv(gym.Env):
         if "level_complete" in info:
             info["level_complete"] = level_complete
         info["buttons"] = buttons
+        if self.log_dir is not None:
+            self._celebrate(info)
+        if self.start is not None:
+            self._remember(info, terminated or truncated)
+        if self.history > 1:
+            if len(frames) % HISTORY_GAP:
+                self._past.append(preprocess(pooled))
+                self.film.append(frames[-1])
+            return np.concatenate(self._past, -1), float(total), terminated, truncated, info
         return self._observe(preprocess(pooled)), float(total), terminated, truncated, info
+
+    def _with_waiting(self, frames: list[np.ndarray]):
+        """This move's buttons, then neutral frames for as long as the player cannot act."""
+        yield from frames
+        neutral = np.zeros(len(self.buttons), np.int8)
+        for _ in range(MAX_WAIT if self.busy is not None else 0):
+            if not self.busy(self.game.get_ram()):
+                return
+            yield neutral
+
+    def _remember(self, info: dict, over: bool) -> None:
+        """Keep this point of the level for practice; when the game ends, note whether this start was beaten."""
+        if not over and self.points is not None and (at := self.where(info)) is not None:
+            self.points.reached(self.start, at, self.game.em.get_state)
+        if over and self.practice and self.points is not None and self._steps <= self.points.DOOMED and not info.get("level_complete"):
+            self.points.doomed()
+        if over and self.mix is not None and not self.practice:
+            beaten = info.get("level_complete") or info.get("matches_won", 0) > info.get("enemy_matches_won", 0)
+            self.mix.result(self.start, bool(beaten))
+
+    def _celebrate(self, info: dict) -> None:
+        """Note the first time any game finishes this level or wins a match against this opponent."""
+        if self.start is None:
+            return
+        name = Path(self.start).name.removesuffix(".state")
+        if info.get("level_complete"):
+            kind = "practice_finish" if self.practice else "finish"  # from partway is not the same as from the start
+            first(self.log_dir, f"{kind}_{name}", f"finished {name}" + (" from partway" if self.practice else ""))
+        if info.get("matches_won", 0) >= 2 and info.get("enemy_matches_won", 0) < 2:
+            first(self.log_dir, f"win_{name}", f"won a match against {name}")
 
     def render(self):
         return self.last_raw

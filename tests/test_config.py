@@ -57,3 +57,11 @@ def test_budget_from_cost(monkeypatch):
 
 def test_budget_without_cost_uses_max_hours():
     assert Settings(max_hours=2.0).hours_budget == 2.0
+
+
+def test_device_is_auto_unless_set(monkeypatch):
+    from sega_rl.config import Settings
+
+    assert Settings().device == "auto"
+    monkeypatch.setenv("SEGARL_DEVICE", "mps")
+    assert Settings().device == "mps"

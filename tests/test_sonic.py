@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from sega_rl.envs.sonic import ALL_LEVELS, HELD_OUT, LEVEL_MAX_X, TRAIN_LEVELS, SONIC_ACTIONS, SonicReward
+from sega_rl.envs.sonic import ALL_LEVELS, JUMP_ACTIONS, RUN_ACTIONS, HELD_OUT, LEVEL_MAX_X, TRAIN_LEVELS, SONIC_ACTIONS, SonicReward
 
 
 def _info(x, lives=3, zone=0, act=0):
@@ -60,6 +60,7 @@ def test_action_mapping():
     vec = env._buttons_vec(SONIC_ACTIONS[2])
     assert vec[_Stub.buttons.index("RIGHT")] == 1 and int(np.sum(vec)) == 1
     assert len(SONIC_ACTIONS) == 7
+    assert JUMP_ACTIONS[:7] == SONIC_ACTIONS and ["RIGHT", "B"] in JUMP_ACTIONS
 
 
 def test_truncation_4500():
@@ -82,7 +83,7 @@ def test_sonic_rom_smoke():
     env = sonic.make(Settings(game="sonic"))
     try:
         env.reset(seed=0)
-        assert env.action_space.n == 7
+        assert env.action_space.n == 12
         for _ in range(50):
             *_, info = env.step(2)  # hold RIGHT
         assert info["max_x"] > 80
@@ -122,3 +123,49 @@ def test_stall_frames_from_config():
 def test_held_out_levels_are_never_trained_on():
     assert len(ALL_LEVELS) == 17 and len(HELD_OUT) == 4 and len(TRAIN_LEVELS) == 13
     assert not set(HELD_OUT) & set(TRAIN_LEVELS) and set(HELD_OUT) | set(TRAIN_LEVELS) == set(ALL_LEVELS)
+
+
+def test_long_runs_hold_a_direction_for_a_second():
+    from sega_rl.envs.common import RetroEnv
+    from test_envs_common import BUTTONS, _score_reward, _StubRetro
+
+    assert RUN_ACTIONS[:len(JUMP_ACTIONS)] == JUMP_ACTIONS
+    stub = _StubRetro()
+    env = RetroEnv("stub", None, _score_reward, combos=RUN_ACTIONS, obs_mode="frame", frame_skip=4, inner=stub)
+    for i in range(len(JUMP_ACTIONS), len(RUN_ACTIONS)):
+        env.reset()
+        stub.calls.clear()
+        env.step(i)
+        held = [c for c in stub.calls if c[BUTTONS.index("LEFT")] or c[BUTTONS.index("RIGHT")]]
+        assert len(stub.calls) >= 60 and len(held) == len(stub.calls)
+
+
+def test_new_places_pay_in_any_direction_once_and_standing_still_pays_nothing():
+    r = SonicReward(stall_frames=10, cell_pay=0.2, death=1.0)
+    info = {"x": 1000, "y": 500, "lives": 3, "zone": 2, "act": 1}
+    assert r({}, dict(info)) == (0.0, False) and r(dict(info), dict(info))[0] == 0.0
+    prev = dict(info)
+    down = {**info, "y": 700}
+    assert r(prev, dict(down))[0] == pytest.approx(0.2)  # below: a new place, though x has not moved
+    assert r(down, dict(info))[0] == 0.0 and r(prev, dict(down))[0] == 0.0  # to and fro pays nothing
+    assert r(down, {**down, "lives": 2}) == (-1.0, True)
+
+
+def test_a_new_place_restarts_the_stall_clock():
+    r = SonicReward(stall_frames=5, cell_pay=0.2)
+    info = {"x": 1000, "y": 100, "lives": 3, "zone": 2, "act": 1}
+    r({}, dict(info))
+    ended = [r(info, {**info, "y": 100 + 40 * k})[1] for k in range(1, 20)]
+    assert not any(ended)  # climbing steadily is not being stuck
+    assert any(r(info, {**info, "y": 860})[1] for _ in range(6))
+
+
+def test_rings_pay_a_little_up_to_a_cap_and_a_hit_costs():
+    r = SonicReward(ring_pay=0.05, death=3.0)
+    info = {"x": 100, "y": 5, "lives": 3, "zone": 0, "act": 0, "rings": 0}
+    assert r({}, dict(info))[0] == 0.0
+    assert r(info, {**info, "rings": 3})[0] == pytest.approx(0.15)
+    assert r({**info, "rings": 3}, dict(info))[0] == pytest.approx(-0.5)  # hit: worth more than the rings were
+    total = sum(r({**info, "rings": k}, {**info, "rings": k + 1})[0] for k in range(100))
+    assert total == pytest.approx(0.05 * 37)  # 40 a game, 3 already paid
+    assert r({**info, "rings": 9}, {**info, "rings": 0, "lives": 2})[0] == pytest.approx(-3.0)

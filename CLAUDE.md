@@ -10,16 +10,20 @@ PPO (SB3) on Sega Genesis games via stable-retro: Street Fighter II' SCE (`sf`),
 |---|---|
 | `config.py` | `Settings` (`SEGARL_*`), per-game defaults (`default_total_steps`, `default_max_eur`), `hours_budget` (EUR cap ÷ pod USD/h) |
 | `envs/common.py` | `RetroEnv`: gray 84×84, frame skip + max-pool, frame/delta obs, moves (held buttons or timed sequences), random start states, truncation, `info["buttons"]` |
-| `envs/street_fighter.py` | `FIGHTER_MOVES` (default: normals, specials, throws, jump-ins, both directions; `SEGARL_SF_ACTIONS=discrete` = 21 plain moves, `multibinary` = upstream), `SFReward` (weighted damage diff/176, stale repeated hits pay less, round ± health left) |
-| `envs/sonic.py` | `SonicReward` (new ground /100, +10 at act end; ends on lost life or 30 s without new ground), `SONIC_ACTIONS`, `LEVEL_MAX_X`, `TRAIN_LEVELS` (13) / `HELD_OUT` (4, never trained on) |
+| `envs/street_fighter.py` | `FIGHTER_MOVES` (default: normals, specials, throws, jump-ins, both directions; `SEGARL_SF_ACTIONS=discrete` = 21 plain moves, `multibinary` = upstream), `Busy` (frames where Ryu cannot act pass without asking for a choice: RAM state byte, round clock; `SEGARL_SF_SKIP_BUSY=false` for models up to mac-sf-5; with it the env keeps its own frame history in game time), `SFReward` (weighted damage diff/176, stale repeated hits pay less, round ± health left) |
+| `envs/sonic.py` | `SonicReward` (new ground /100, +0.2 per new place in any direction, -3 per death, +0.05 per ring, +50 at act end; ends on lost life or 30 s without a new place), `SHORT_ACTIONS` (default; `SEGARL_SONIC_ACTIONS=run12|jump9|retro7` for older models), `LEVEL_MAX_X`, `ALL_LEVELS` (17, default) or `SEGARL_SONIC_LEVELS=multi`: 13 trained, 4 `HELD_OUT` |
+| `envs/starts.py` | training starts: `WeakSpots` (more games on levels / opponents not beaten) and `LevelPoints` (Sonic practice from one state per place reached in a level, in `runs/<id>/points/`: ROM-like, never in git); checks never use either |
 | `envs/airstriker.py` | score reward, test/smoke game |
 | `envs/factory.py` | `make_vec_env`: SubprocVecEnv(forkserver) → VecMonitor → VecFrameStack(4) |
 | `monitoring/health.py` | `HealthMonitor` rules, `HealthCallback` (health.json, watchdog thread → exit 3 on stall) |
 | `monitoring/mlflow_tracking.py` | no-op unless `MLFLOW_TRACKING_URI`; logging only after a successful `start()`; SB3 KVWriter |
 | `monitoring/video.py` | mp4 writer, 3x enlarged |
 | `evaluate.py` | `run_eval` (deterministic, in-process), `run_levels_eval` (Sonic: score = held-out levels), `EvalCallback` (video, best_model.zip, best.json) |
+| `evaluate.run_fights_eval` | SF on many opponents: `SEGARL_SF_STATES_DIR` with `train/` and `heldout/` start states (from `sega-rl ladder`); score = held-out fights, one match per game |
+| `monitoring/achievements.py` | first win vs each opponent, first finish of each level: `runs/<id>/achievements/*.json` |
 | `bench.py` | `sega-rl bench` (pod only): emulator vs update time per thread count, damage of every SF move → bench.json, moves.mp4; `sega-rl compare`: a checkpoint's likeliest-move vs sampled win rate |
 | `train.py` | `run()`: resume, callbacks (checkpoints, health, eval, budget), env-crash handling, DONE marker |
+| `graft.py` | more stacked frames for a trained network (`SEGARL_INIT_FROM` + `SEGARL_FRAME_STACK=8`): plays the same until it learns to use them |
 | `ladder.py` | `sega-rl ladder` (pod only): cheats up SF's ladder to save one start state per opponent (states are ROM-like: never in git or public) |
 | `tune.py` | Optuna, upstream search space → best_params.json (`SEGARL_PARAMS_FILE`) |
 | `status.py` | `sega-rl status <run>` (live state) and `sega-rl videos <run>` (download eval replays) via MLflow |
